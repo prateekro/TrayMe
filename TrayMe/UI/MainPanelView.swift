@@ -4,19 +4,24 @@
 //
 
 import SwiftUI
+import Combine
+
+class PanelState: ObservableObject {
+    @Published var selectedTab: PanelTab = .clipboard
+    
+    enum PanelTab {
+        case clipboard, files, notes
+    }
+}
 
 struct MainPanelView: View {
     @EnvironmentObject var clipboardManager: ClipboardManager
     @EnvironmentObject var filesManager: FilesManager
     @EnvironmentObject var notesManager: NotesManager
     @EnvironmentObject var settings: AppSettings
+    @EnvironmentObject var panelState: PanelState
     
-    @State private var selectedTab: PanelTab = .clipboard
     @Environment(\.openSettings) private var openSettings
-    
-    enum PanelTab {
-        case clipboard, files, notes
-    }
     
     var body: some View {
         VStack(spacing: 0) {
@@ -25,25 +30,25 @@ struct MainPanelView: View {
                 TabButton(
                     title: "Clipboard",
                     icon: "doc.on.clipboard",
-                    isSelected: selectedTab == .clipboard
+                    isSelected: panelState.selectedTab == .clipboard
                 ) {
-                    selectedTab = .clipboard
+                    panelState.selectedTab = .clipboard
                 }
                 
                 TabButton(
                     title: "Files",
                     icon: "folder",
-                    isSelected: selectedTab == .files
+                    isSelected: panelState.selectedTab == .files
                 ) {
-                    selectedTab = .files
+                    panelState.selectedTab = .files
                 }
                 
                 TabButton(
                     title: "Notes",
                     icon: "note.text",
-                    isSelected: selectedTab == .notes
+                    isSelected: panelState.selectedTab == .notes
                 ) {
-                    selectedTab = .notes
+                    panelState.selectedTab = .notes
                 }
                 
                 Spacer()
@@ -69,7 +74,7 @@ struct MainPanelView: View {
             
             // Content
             Group {
-                switch selectedTab {
+                switch panelState.selectedTab {
                 case .clipboard:
                     ClipboardView()
                         .environmentObject(clipboardManager)

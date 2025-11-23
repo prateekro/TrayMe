@@ -60,9 +60,14 @@ class MouseTracker {
             self?.handleScrollEvent(event)
         }
         
+        // Note: leftMouseDragged only works for drags within our app
+        // For external file drags, we need a drag destination view
+        // This is implemented in FilesView with .onDrop()
+        
         print("✅ Mouse tracker started!")
         print("   📍 Tracking when mouse at top \(Int(topEdgeThreshold))px of screen")
         print("   📜 Scroll UP \(Int(scrollThreshold))px to activate")
+        print("   🗂️ Drag files over panel to drop them")
         print("   ✨ No Accessibility permissions required!")
     }
     

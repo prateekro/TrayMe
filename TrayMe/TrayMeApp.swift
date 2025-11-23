@@ -24,6 +24,7 @@ struct TrayMeApp: App {
 class AppDelegate: NSObject, NSApplicationDelegate {
     var mainPanel: MainPanel?
     var mouseTracker: MouseTracker?
+    var dragDetector: DragDetectorWindow?
     var statusBarItem: NSStatusItem?
     var localEventMonitor: Any?
     var globalEventMonitor: Any?
@@ -61,9 +62,25 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         // Setup mouse tracking for top-screen activation
         mouseTracker = MouseTracker { [weak self] in
-            // Only show panel when scrolling down at top (don't toggle)
+            // Show panel when scrolling up at top
             self?.mainPanel?.show()
         }
+        
+        // Setup drag detector window
+        dragDetector = DragDetectorWindow(
+            dragStartCallback: { [weak self] in
+                // Mark panel as dragging to prevent click-outside close
+                self?.mainPanel?.setDragging(true)
+            },
+            dragEndCallback: { [weak self] in
+                // Reset dragging state
+                self?.mainPanel?.setDragging(false)
+            },
+            dragActivateCallback: { [weak self] in
+                // Show panel with Files tab when file is dragged to top
+                self?.mainPanel?.showWithFilesTab()
+            }
+        )
         
         print("✅ TrayMe ready!")
     }
