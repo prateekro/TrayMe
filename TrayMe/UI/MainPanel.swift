@@ -9,7 +9,8 @@ import AppKit
 class MainPanel: NSPanel {
     private var hostingView: NSView?
     private var clickOutsideMonitor: Any?
-    private var scrollOutsideMonitor: Any?
+    private var scrollOutsideMonitorLocal: Any?
+    private var scrollOutsideMonitorGlobal: Any?
     
     // Store references to managers
     private let clipboardManager: ClipboardManager
@@ -96,8 +97,8 @@ class MainPanel: NSPanel {
     }
     
     func setupScrollOutsideMonitor() {
-        // Monitor for scroll down when panel is visible
-        scrollOutsideMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+        // Monitor for scroll down when panel is visible - LOCAL events
+        scrollOutsideMonitorLocal = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
             guard let self = self, self.isVisible else { return event }
             
             // Get mouse location
@@ -117,7 +118,26 @@ class MainPanel: NSPanel {
             return event
         }
         
-        print("✅ Scroll outside monitor setup")
+        // Monitor for scroll down - GLOBAL events (when app not focused)
+        scrollOutsideMonitorGlobal = NSEvent.addGlobalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+            guard let self = self, self.isVisible else { return }
+            
+            // Get mouse location
+            let mouseLocation = NSEvent.mouseLocation
+            
+            // Check if mouse is outside the panel
+            if !self.frame.contains(mouseLocation) {
+                // Detect scroll down (negative delta)
+                let delta = event.scrollingDeltaY
+                
+                if delta < -5 { // Small threshold to avoid accidental closes
+                    print("📜 Scroll down outside panel (global) - closing")
+                    self.hide()
+                }
+            }
+        }
+        
+        print("✅ Scroll outside monitor setup (local + global)")
     }
     
     private func setupContent() {
@@ -218,8 +238,12 @@ class MainPanel: NSPanel {
             NSEvent.removeMonitor(monitor)
         }
         
-        // Clean up scroll monitor
-        if let monitor = scrollOutsideMonitor {
+        // Clean up scroll monitors
+        if let monitor = scrollOutsideMonitorLocal {
+            NSEvent.removeMonitor(monitor)
+        }
+        
+        if let monitor = scrollOutsideMonitorGlobal {
             NSEvent.removeMonitor(monitor)
         }
     }

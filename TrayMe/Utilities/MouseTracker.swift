@@ -2,7 +2,7 @@
 //  MouseTracker.swift
 //  TrayMe
 //
-//  Detects when mouse is in menu bar area and user scrolls up to activate panel
+//  Detects when mouse is at top of screen and user scrolls up to activate panel
 //
 
 import AppKit
@@ -11,12 +11,13 @@ import CoreGraphics
 class MouseTracker {
     private var scrollMonitorLocal: Any?
     private var scrollMonitorGlobal: Any?
-    private var invisibleWindow: NSWindow?
+    private var mouseMonitor: Any?
     private let activationCallback: () -> Void
     
     private var mouseAtTop = false
     private var scrollDelta: CGFloat = 0
     private let scrollThreshold: CGFloat = 20 // Amount of scroll needed to trigger
+    private let topEdgeThreshold: CGFloat = 5 // Pixels from top to be considered "at top"
     
     init(activationCallback: @escaping () -> Void) {
         self.activationCallback = activationCallback
@@ -32,66 +33,22 @@ class MouseTracker {
         }
         
         let screenFrame = screen.frame
-        let visibleFrame = screen.visibleFrame
-        
-        // Calculate menu bar height
-        let menuBarHeight = screenFrame.maxY - visibleFrame.maxY
         
         print("   📏 Screen: \(Int(screenFrame.width))x\(Int(screenFrame.height))")
-        print("   📏 Visible frame top: \(Int(visibleFrame.maxY))")
-        print("   📏 Menu bar height: \(Int(menuBarHeight))px")
+        print("   📏 Detection: Top \(Int(topEdgeThreshold))px of screen")
         
-        // Create tracking window that covers EXACTLY the menu bar area
-        let trackingFrame = NSRect(
-            x: screenFrame.origin.x,
-            y: visibleFrame.maxY, // Start where visible frame ends (menu bar starts)
-            width: screenFrame.width,
-            height: menuBarHeight
-        )
-        
-        print("   📏 Tracking window: x=\(Int(trackingFrame.origin.x)) y=\(Int(trackingFrame.origin.y)) w=\(Int(trackingFrame.width)) h=\(Int(trackingFrame.height))")
-        
-        // Create borderless, transparent window
-        let window = NSWindow(
-            contentRect: trackingFrame,
-            styleMask: .borderless,
-            backing: .buffered,
-            defer: false
-        )
-        
-        window.backgroundColor = .clear
-        window.isOpaque = false
-        window.hasShadow = false
-        window.ignoresMouseEvents = false // Must receive events for tracking
-        window.level = .statusBar // Same level as menu bar
-        window.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle, .fullScreenAuxiliary]
-        window.acceptsMouseMovedEvents = true
-        
-        // Create tracking view
-        let trackingView = TrackingView(frame: window.contentView!.bounds)
-        trackingView.onMouseEntered = { [weak self] in
-            self?.mouseAtTop = true
-            self?.scrollDelta = 0
-            print("🖱️ Mouse ENTERED menu bar area")
+        // Monitor mouse movement globally
+        mouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: .mouseMoved) { [weak self] event in
+            guard let self = self else { return }
+            self.checkMousePosition()
         }
-        trackingView.onMouseExited = { [weak self] in
-            self?.mouseAtTop = false
-            self?.scrollDelta = 0
-            print("🖱️ Mouse LEFT menu bar area")
+        
+        // Also monitor locally
+        NSEvent.addLocalMonitorForEvents(matching: .mouseMoved) { [weak self] event in
+            guard let self = self else { return event }
+            self.checkMousePosition()
+            return event
         }
-        window.contentView = trackingView
-        
-        // Create tracking area covering entire window
-        let trackingArea = NSTrackingArea(
-            rect: trackingView.bounds,
-            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
-            owner: trackingView,
-            userInfo: nil
-        )
-        trackingView.addTrackingArea(trackingArea)
-        
-        self.invisibleWindow = window
-        window.orderFront(nil)
         
         // Monitor scroll events - both local and global
         scrollMonitorLocal = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
@@ -104,9 +61,30 @@ class MouseTracker {
         }
         
         print("✅ Mouse tracker started!")
-        print("   📍 Tracking ONLY in menu bar area")
-        print("   📜 Scroll UP \(Int(scrollThreshold))px in menu bar to activate")
+        print("   📍 Tracking when mouse at top \(Int(topEdgeThreshold))px of screen")
+        print("   📜 Scroll UP \(Int(scrollThreshold))px to activate")
         print("   ✨ No Accessibility permissions required!")
+    }
+    
+    private func checkMousePosition() {
+        guard let screen = NSScreen.main else { return }
+        
+        let mouseLocation = NSEvent.mouseLocation
+        let screenFrame = screen.frame
+        
+        // Check if mouse is at the very top of screen
+        // NSEvent.mouseLocation has Y=0 at bottom, so top is screenFrame.maxY
+        let isAtTop = mouseLocation.y >= screenFrame.maxY - topEdgeThreshold
+        
+        if isAtTop && !mouseAtTop {
+            mouseAtTop = true
+            scrollDelta = 0
+            print("🖱️ Mouse at TOP of screen")
+        } else if !isAtTop && mouseAtTop {
+            mouseAtTop = false
+            scrollDelta = 0
+            print("🖱️ Mouse left top area")
+        }
     }
     
     private func handleScrollEvent(_ event: NSEvent) {
@@ -115,10 +93,10 @@ class MouseTracker {
         
         // Log all scroll events for debugging
         if abs(delta) > 0.5 {
-            print("📜 Scroll: \(String(format: "%.1f", delta)) | In menu bar: \(mouseAtTop)")
+            print("📜 Scroll: \(String(format: "%.1f", delta)) | At top: \(mouseAtTop)")
         }
         
-        // Only accumulate when mouse is in menu bar
+        // Only accumulate when mouse is at top
         guard mouseAtTop else {
             scrollDelta = 0
             return
@@ -133,7 +111,7 @@ class MouseTracker {
             if scrollDelta >= scrollThreshold {
                 print("🎯 Threshold reached - activating panel!")
                 scrollDelta = 0
-                // Don't reset mouseAtTop - allow repeated activations without leaving menu bar
+                // Don't reset mouseAtTop - allow repeated activations
                 activationCallback()
             }
         } else if delta < 0 {
@@ -157,9 +135,9 @@ class MouseTracker {
             scrollMonitorGlobal = nil
         }
         
-        if let window = invisibleWindow {
-            window.close()
-            invisibleWindow = nil
+        if let monitor = mouseMonitor {
+            NSEvent.removeMonitor(monitor)
+            mouseMonitor = nil
         }
         
         print("⏹️ Mouse tracker stopped")
@@ -167,19 +145,5 @@ class MouseTracker {
     
     deinit {
         stopTracking()
-    }
-}
-
-// Custom view for tracking mouse entry/exit
-private class TrackingView: NSView {
-    var onMouseEntered: (() -> Void)?
-    var onMouseExited: (() -> Void)?
-    
-    override func mouseEntered(with event: NSEvent) {
-        onMouseEntered?()
-    }
-    
-    override func mouseExited(with event: NSEvent) {
-        onMouseExited?()
     }
 }
