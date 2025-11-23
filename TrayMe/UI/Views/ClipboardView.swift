@@ -47,7 +47,7 @@ struct ClipboardView: View {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 8) {
                             ForEach(manager.favorites) { item in
-                                FavoriteClipCard(item: item, selectedItem: $selectedItem)
+                                FavoriteClipCard(item: item, selectedItem: $selectedItem, editedContent: $editedContent)
                             }
                         }
                         .padding(.horizontal)
@@ -240,6 +240,7 @@ struct FavoriteClipCard: View {
     @EnvironmentObject var manager: ClipboardManager
     let item: ClipboardItem
     @Binding var selectedItem: ClipboardItem?
+    @Binding var editedContent: String
     @State private var isHovered = false
     
     var body: some View {
@@ -268,6 +269,8 @@ struct FavoriteClipCard: View {
         }
         .onTapGesture {
             selectedItem = item
+            editedContent = item.content
+            manager.copyToClipboard(item)
         }
     }
 }

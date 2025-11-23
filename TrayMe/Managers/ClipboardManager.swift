@@ -148,7 +148,8 @@ class ClipboardManager: ObservableObject {
     }
     
     func clearHistory() {
-        items.removeAll()
+        // Remove only non-favorite items
+        items.removeAll { !$0.isFavorite }
         saveToDisk()
     }
     
