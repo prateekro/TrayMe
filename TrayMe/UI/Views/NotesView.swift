@@ -23,6 +23,7 @@ struct NotesView: View {
     @EnvironmentObject var manager: NotesManager
     @State private var noteContent: String = ""
     @State private var noteTitle: String = ""
+    @State private var saveWorkItem: DispatchWorkItem?
     @FocusState private var isEditorFocused: Bool
     
     var body: some View {
@@ -38,10 +39,12 @@ struct NotesView: View {
                         .cornerRadius(6)
                     
                     Button(action: {
+                        print("📝 Creating new note...")
                         let newNote = manager.createNote()
                         noteTitle = newNote.title
                         noteContent = newNote.content
                         isEditorFocused = true
+                        print("📝 New note created: \(newNote.id)")
                     }) {
                         Image(systemName: "square.and.pencil")
                     }
@@ -59,6 +62,7 @@ struct NotesView: View {
                                 note: note,
                                 isSelected: manager.selectedNote?.id == note.id
                             )
+                            .contentShape(Rectangle()) // Make entire row clickable
                             .onTapGesture {
                                 selectNote(note)
                             }
@@ -79,10 +83,21 @@ struct NotesView: View {
                         .textFieldStyle(.plain)
                         .font(.system(size: 18, weight: .semibold))
                         .padding()
-                        .onChange(of: noteTitle) {
-                            DispatchQueue.main.async {
-                                manager.updateNote(selectedNote, title: noteTitle)
+                        .onChange(of: noteTitle) { oldValue, newValue in
+                            guard let selectedNote = manager.selectedNote else { return }
+                            
+                            // Cancel previous save
+                            saveWorkItem?.cancel()
+                            
+                            // Create new debounced save
+                            let workItem = DispatchWorkItem { [weak manager] in
+                                manager?.updateNote(selectedNote, title: newValue)
+                                print("📝 Auto-saved title: \(newValue)")
                             }
+                            saveWorkItem = workItem
+                            
+                            // Execute after 0.5 seconds
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: workItem)
                         }
                     
                     Divider()
@@ -92,10 +107,22 @@ struct NotesView: View {
                         .font(.system(size: 14))
                         .padding(8)
                         .focused($isEditorFocused)
-                        .onChange(of: noteContent) {
-                            DispatchQueue.main.async {
-                                manager.updateNote(selectedNote, content: noteContent)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .onChange(of: noteContent) { oldValue, newValue in
+                            guard let selectedNote = manager.selectedNote else { return }
+                            
+                            // Cancel previous save
+                            saveWorkItem?.cancel()
+                            
+                            // Create new debounced save
+                            let workItem = DispatchWorkItem { [weak manager] in
+                                manager?.updateNote(selectedNote, content: newValue)
+                                print("📝 Auto-saved content")
                             }
+                            saveWorkItem = workItem
+                            
+                            // Execute after 0.5 seconds
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: workItem)
                         }
                     
                     // Footer with actions
@@ -156,13 +183,39 @@ struct NotesView: View {
             }
         }
         .onAppear {
+            print("📝 NotesView appeared. Notes count: \(manager.notes.count)")
             if let selectedNote = manager.selectedNote {
+                print("📝 Selected note: \(selectedNote.displayTitle)")
                 selectNote(selectedNote)
+            } else {
+                print("📝 No note selected")
+            }
+        }
+        .onDisappear {
+            // Cancel pending save and save immediately
+            saveWorkItem?.cancel()
+            
+            // Save current note when view disappears
+            if let currentNote = manager.selectedNote {
+                print("📝 Saving note on disappear: \(currentNote.displayTitle)")
+                manager.updateNote(currentNote, title: noteTitle, content: noteContent)
             }
         }
     }
     
     func selectNote(_ note: Note) {
+        print("📝 Selecting note: \(note.displayTitle)")
+        
+        // Execute any pending save immediately
+        saveWorkItem?.cancel()
+        
+        // Save current note before switching
+        if let currentNote = manager.selectedNote,
+           currentNote.id != note.id {
+            print("📝 Saving previous note before switching")
+            manager.updateNote(currentNote, title: noteTitle, content: noteContent)
+        }
+        
         manager.selectedNote = note
         noteTitle = note.title
         noteContent = note.content

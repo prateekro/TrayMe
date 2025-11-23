@@ -41,7 +41,7 @@ class MainPanel: NSPanel {
         // Panel configuration
         super.init(
             contentRect: NSRect(x: 0, y: 0, width: 900, height: 400),
-            styleMask: [.borderless, .resizable, .nonactivatingPanel],
+            styleMask: [.borderless, .resizable],
             backing: .buffered,
             defer: false
         )
@@ -89,6 +89,15 @@ class MainPanel: NSPanel {
         }
         
         print("✅ MainPanel created successfully")
+    }
+    
+    // Override to allow panel to become key window for text editing
+    override var canBecomeKey: Bool {
+        return true
+    }
+    
+    override var canBecomeMain: Bool {
+        return false
     }
     
     func setupClickOutsideMonitor() {

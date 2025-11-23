@@ -133,6 +133,20 @@ class ClipboardManager: ObservableObject {
         saveToDisk()
     }
     
+    func updateItemContent(_ item: ClipboardItem, newContent: String) {
+        if let index = items.firstIndex(where: { $0.id == item.id }) {
+            let type = determineType(content: newContent)
+            items[index] = ClipboardItem(id: item.id, content: newContent, type: type, date: item.timestamp, isFavorite: item.isFavorite)
+            
+            // Update in favorites as well if it exists
+            if let favIndex = favorites.firstIndex(where: { $0.id == item.id }) {
+                favorites[favIndex] = items[index]
+            }
+            
+            saveToDisk()
+        }
+    }
+    
     func clearHistory() {
         items.removeAll()
         saveToDisk()

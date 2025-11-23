@@ -8,24 +8,29 @@ import SwiftUI
 struct ClipboardView: View {
     @EnvironmentObject var manager: ClipboardManager
     @State private var hoveredItem: UUID?
+    @State private var selectedItem: ClipboardItem?
+    @State private var editedContent: String = ""
+    @State private var saveWorkItem: DispatchWorkItem?
     
     var body: some View {
-        VStack(spacing: 0) {
-            // Search bar
-            HStack {
-                Image(systemName: "magnifyingglass")
-                    .foregroundColor(.secondary)
-                TextField("Search clipboard...", text: $manager.searchText)
-                    .textFieldStyle(.plain)
-                
-                if !manager.searchText.isEmpty {
-                    Button(action: { manager.searchText = "" }) {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundColor(.secondary)
+        HStack(spacing: 0) {
+            // Main list
+            VStack(spacing: 0) {
+                // Search bar
+                HStack {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundColor(.secondary)
+                    TextField("Search clipboard...", text: $manager.searchText)
+                        .textFieldStyle(.plain)
+                    
+                    if !manager.searchText.isEmpty {
+                        Button(action: { manager.searchText = "" }) {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundColor(.secondary)
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
                 }
-            }
             .padding(10)
             .background(Color(NSColor.controlBackgroundColor))
             .cornerRadius(8)
@@ -42,7 +47,7 @@ struct ClipboardView: View {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 8) {
                             ForEach(manager.favorites) { item in
-                                FavoriteClipCard(item: item)
+                                FavoriteClipCard(item: item, selectedItem: $selectedItem)
                             }
                         }
                         .padding(.horizontal)
@@ -58,10 +63,15 @@ struct ClipboardView: View {
                     ForEach(manager.filteredItems) { item in
                         ClipboardItemRow(
                             item: item,
-                            isHovered: hoveredItem == item.id
+                            isHovered: hoveredItem == item.id,
+                            isSelected: selectedItem?.id == item.id
                         )
+                        .contentShape(Rectangle()) // Make entire row clickable
                         .onHover { hovering in
                             hoveredItem = hovering ? item.id : nil
+                        }
+                        .onTapGesture {
+                            selectItem(item)
                         }
                     }
                 }
@@ -86,7 +96,60 @@ struct ClipboardView: View {
             .padding(.horizontal)
             .padding(.vertical, 8)
             .background(Color(NSColor.windowBackgroundColor).opacity(0.5))
+            }
+            
+            // Detail/Edit panel
+            if let item = selectedItem {
+                Divider()
+                
+                ClipboardDetailView(
+                    item: item,
+                    editedContent: $editedContent,
+                    onClose: {
+                        // Cancel pending save and save immediately
+                        saveWorkItem?.cancel()
+                        if let item = selectedItem {
+                            manager.updateItemContent(item, newContent: editedContent)
+                        }
+                        selectedItem = nil
+                    },
+                    onSave: {
+                        // Cancel pending save and save immediately
+                        saveWorkItem?.cancel()
+                        manager.updateItemContent(item, newContent: editedContent)
+                        selectedItem = nil
+                    },
+                    onContentChange: {
+                        // Debounced auto-save
+                        saveWorkItem?.cancel()
+                        let workItem = DispatchWorkItem { [weak manager] in
+                            manager?.updateItemContent(item, newContent: editedContent)
+                        }
+                        saveWorkItem = workItem
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: workItem)
+                    }
+                )
+                .frame(width: 300)
+            }
         }
+        .onDisappear {
+            // Save and copy to clipboard when hiding the view
+            if let item = selectedItem {
+                saveWorkItem?.cancel()
+                manager.updateItemContent(item, newContent: editedContent)
+                // Copy the updated item to clipboard
+                if let updatedItem = manager.items.first(where: { $0.id == item.id }) {
+                    manager.copyToClipboard(updatedItem)
+                }
+            }
+        }
+    }
+    
+    func selectItem(_ item: ClipboardItem) {
+        selectedItem = item
+        editedContent = item.content
+        // Copy to clipboard when selecting
+        manager.copyToClipboard(item)
     }
 }
 
@@ -94,6 +157,7 @@ struct ClipboardItemRow: View {
     @EnvironmentObject var manager: ClipboardManager
     let item: ClipboardItem
     let isHovered: Bool
+    let isSelected: Bool
     
     var body: some View {
         HStack(spacing: 12) {
@@ -148,11 +212,9 @@ struct ClipboardItemRow: View {
         .padding(.vertical, 8)
         .background(
             RoundedRectangle(cornerRadius: 6)
-                .fill(isHovered ? Color.accentColor.opacity(0.1) : Color.clear)
+                .fill(isSelected ? Color.accentColor.opacity(0.2) : 
+                     (isHovered ? Color.accentColor.opacity(0.1) : Color.clear))
         )
-        .onTapGesture {
-            manager.copyToClipboard(item)
-        }
     }
     
     func iconForType(_ type: ClipboardItem.ClipboardType) -> String {
@@ -177,6 +239,8 @@ struct ClipboardItemRow: View {
 struct FavoriteClipCard: View {
     @EnvironmentObject var manager: ClipboardManager
     let item: ClipboardItem
+    @Binding var selectedItem: ClipboardItem?
+    @State private var isHovered = false
     
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -196,10 +260,85 @@ struct FavoriteClipCard: View {
         }
         .frame(width: 120, height: 60)
         .padding(8)
-        .background(Color(NSColor.controlBackgroundColor))
+        .background(isHovered ? Color.accentColor.opacity(0.15) : Color(NSColor.controlBackgroundColor))
         .cornerRadius(8)
+        .contentShape(Rectangle())
+        .onHover { hovering in
+            isHovered = hovering
+        }
         .onTapGesture {
-            manager.copyToClipboard(item)
+            selectedItem = item
+        }
+    }
+}
+
+struct ClipboardDetailView: View {
+    @EnvironmentObject var manager: ClipboardManager
+    let item: ClipboardItem
+    @Binding var editedContent: String
+    let onClose: () -> Void
+    let onSave: () -> Void
+    let onContentChange: () -> Void
+    
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header
+            HStack {
+                Text("Edit Item")
+                    .font(.system(size: 14, weight: .semibold))
+                
+                Spacer()
+                
+                Button(action: onClose) {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding()
+            .background(Color(NSColor.controlBackgroundColor))
+            
+            Divider()
+            
+            // Content editor
+            TextEditor(text: $editedContent)
+                .font(.system(size: 12))
+                .padding(8)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .onChange(of: editedContent) {
+                    onContentChange()
+                }
+            
+            Divider()
+            
+            // Actions
+            HStack(spacing: 12) {
+                Button("Copy") {
+                    manager.copyToClipboard(item)
+                }
+                .buttonStyle(.borderedProminent)
+                
+                Button("Save") {
+                    onSave()
+                }
+                .buttonStyle(.bordered)
+                
+                Spacer()
+                
+                Button(action: {
+                    manager.toggleFavorite(item)
+                }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: item.isFavorite ? "star.fill" : "star")
+                        Text(item.isFavorite ? "Favorited" : "Favorite")
+                    }
+                    .font(.system(size: 11))
+                    .foregroundColor(item.isFavorite ? .yellow : .secondary)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding()
+            .background(Color(NSColor.windowBackgroundColor).opacity(0.5))
         }
     }
 }

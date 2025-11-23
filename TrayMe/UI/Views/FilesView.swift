@@ -140,8 +140,14 @@ struct FileCard: View {
     
     var body: some View {
         VStack(spacing: 8) {
-            // File icon
-            if let icon = file.icon {
+            // File thumbnail/icon with preview for images
+            if let thumbnail = generateThumbnail() {
+                Image(nsImage: thumbnail)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: 80, height: 60)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+            } else if let icon = file.icon {
                 Image(nsImage: icon)
                     .resizable()
                     .scaledToFit()
@@ -194,7 +200,7 @@ struct FileCard: View {
                 .padding(.top, 4)
             }
         }
-        .frame(width: 100, height: 120)
+        .frame(width: 100, height: 140)
         .padding(8)
         .background(
             RoundedRectangle(cornerRadius: 8)
@@ -203,5 +209,30 @@ struct FileCard: View {
         .onDrag {
             NSItemProvider(object: file.url as NSURL)
         }
+    }
+    
+    func generateThumbnail() -> NSImage? {
+        // Only generate thumbnails for images
+        let imageExtensions = ["jpg", "jpeg", "png", "gif", "bmp", "tiff", "heic", "webp"]
+        guard imageExtensions.contains(file.fileType.lowercased()) else {
+            return nil
+        }
+        
+        guard let image = NSImage(contentsOf: file.url) else {
+            return nil
+        }
+        
+        // Generate thumbnail
+        let targetSize = NSSize(width: 160, height: 120)
+        let thumbnail = NSImage(size: targetSize)
+        
+        thumbnail.lockFocus()
+        image.draw(in: NSRect(origin: .zero, size: targetSize),
+                   from: NSRect(origin: .zero, size: image.size),
+                   operation: .copy,
+                   fraction: 1.0)
+        thumbnail.unlockFocus()
+        
+        return thumbnail
     }
 }

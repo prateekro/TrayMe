@@ -21,6 +21,14 @@ struct ClipboardItem: Identifiable, Codable, Equatable {
         self.type = type
     }
     
+    init(id: UUID, content: String, type: ClipboardType, date: Date, isFavorite: Bool) {
+        self.id = id
+        self.content = content
+        self.timestamp = date
+        self.isFavorite = isFavorite
+        self.type = type
+    }
+    
     enum ClipboardType: String, Codable {
         case text
         case url
