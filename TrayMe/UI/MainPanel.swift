@@ -41,7 +41,7 @@ class MainPanel: NSPanel {
         // Panel configuration
         super.init(
             contentRect: NSRect(x: 0, y: 0, width: 900, height: 400),
-            styleMask: [.titled, .closable, .resizable, .nonactivatingPanel],
+            styleMask: [.borderless, .resizable, .nonactivatingPanel],
             backing: .buffered,
             defer: false
         )
@@ -53,12 +53,15 @@ class MainPanel: NSPanel {
         self.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         self.isFloatingPanel = true
         self.hidesOnDeactivate = false
-        self.title = "TrayMe"
-        self.titlebarAppearsTransparent = true
-        self.titleVisibility = .hidden
         self.backgroundColor = .clear
         self.isOpaque = false
         self.hasShadow = true
+        self.titlebarAppearsTransparent = true
+        self.titleVisibility = .hidden
+        self.styleMask.remove(.titled)
+        self.standardWindowButton(.closeButton)?.isHidden = true
+        self.standardWindowButton(.miniaturizeButton)?.isHidden = true
+        self.standardWindowButton(.zoomButton)?.isHidden = true
         
         print("📦 Panel settings applied")
         
@@ -228,13 +231,18 @@ class MainPanel: NSPanel {
     
     func positionAtTopOfScreen() {
         guard let screen = NSScreen.main else { return }
-        let screenFrame = screen.visibleFrame
+        // Use full frame to include menu bar area
+        let screenFrame = screen.frame
         
-        let panelWidth: CGFloat = 900
-        let panelHeight: CGFloat = 400
+        // Full screen width
+        let panelWidth: CGFloat = screenFrame.width
+        // 40% of screen height
+        let panelHeight: CGFloat = screenFrame.height * 0.40
         
-        let x = screenFrame.midX - (panelWidth / 2)
-        let y = screenFrame.maxY - panelHeight - 10 // 10px from top
+        // Start from left edge
+        let x = screenFrame.minX
+        // Position at absolute top of screen (including menu bar)
+        let y = screenFrame.maxY - panelHeight
         
         self.setFrame(NSRect(x: x, y: y, width: panelWidth, height: panelHeight), display: true)
     }
