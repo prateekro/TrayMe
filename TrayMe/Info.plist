@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>$(DEVELOPMENT_LANGUAGE)</string>
+    <key>CFBundleExecutable</key>
+    <string>$(EXECUTABLE_NAME)</string>
+    <key>CFBundleIdentifier</key>
+    <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleName</key>
+    <string>$(PRODUCT_NAME)</string>
+    <key>CFBundlePackageType</key>
+    <string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>$(MACOSX_DEPLOYMENT_TARGET)</string>
+    <key>NSPrincipalClass</key>
+    <string>NSApplication</string>
+    <key>NSHumanReadableCopyright</key>
+    <string>Copyright © 2025. All rights reserved.</string>
+    
+    <!-- Required for clipboard monitoring -->
+    <key>NSAppleEventsUsageDescription</key>
+    <string>TrayMe needs access to Apple Events to monitor clipboard changes.</string>
+    
+    <!-- Required for accessibility features (mouse tracking) -->
+    <key>NSAccessibilityUsageDescription</key>
+    <string>TrayMe needs accessibility permissions to detect mouse movement at the top of the screen.</string>
+    
+    <!-- Required for file system access -->
+    <key>NSDocumentsFolderUsageDescription</key>
+    <string>TrayMe needs access to manage your files in the Files Hub.</string>
+    
+    <!-- Application doesn't appear in Dock -->
+    <key>LSUIElement</key>
+    <false/>
+    
+    <!-- Support all spaces -->
+    <key>LSBackgroundOnly</key>
+    <false/>
+</dict>
+</plist>
