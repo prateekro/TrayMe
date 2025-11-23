@@ -259,16 +259,19 @@ class MainPanel: NSPanel {
         // Don't show if already visible
         guard !self.isVisible else { return }
         
+        guard let screen = NSScreen.main else { return }
+        
         positionAtTopOfScreen()
         
-        // Slide down animation
+        // Slide down animation from above screen
         let currentFrame = self.frame
         let targetY = currentFrame.origin.y
         let panelWidth = currentFrame.width
         let panelHeight = currentFrame.height
         
+        // Start position: completely above the screen
         var startFrame = currentFrame
-        startFrame.origin.y = NSScreen.main!.visibleFrame.maxY
+        startFrame.origin.y = screen.frame.maxY
         self.setFrame(startFrame, display: false)
         
         self.makeKeyAndOrderFront(nil)
@@ -299,8 +302,9 @@ class MainPanel: NSPanel {
             context.duration = 0.25
             context.timingFunction = CAMediaTimingFunction(name: .easeIn)
             
+            // Slide up to above the screen (including menu bar)
             var frame = self.frame
-            frame.origin.y = screen.visibleFrame.maxY
+            frame.origin.y = screen.frame.maxY
             self.animator().setFrame(frame, display: true)
         }) {
             self.orderOut(nil)
