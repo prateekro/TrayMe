@@ -5,7 +5,7 @@
 
 import SwiftUI
 import AppKit
-internal import Combine
+import Combine
 
 class FilesManager: ObservableObject {
     @Published var files: [FileItem] = []

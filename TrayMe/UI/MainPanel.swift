@@ -58,16 +58,17 @@ class MainPanel: NSPanel {
         
         print("📦 Panel positioned")
         
-        // Create SwiftUI content
-        setupContent()
-        
-        print("📦 Content setup complete")
-        
         // Setup click outside to close
         setupClickOutsideMonitor()
         
         // Initially hidden
         self.orderOut(nil)
+        
+        // Defer content setup to avoid layout recursion
+        DispatchQueue.main.async { [weak self] in
+            self?.setupContent()
+            print("📦 Content setup complete")
+        }
         
         print("✅ MainPanel created successfully")
     }
@@ -102,11 +103,20 @@ class MainPanel: NSPanel {
         
         // Wrap in hosting view
         let hosting = NSHostingView(rootView: contentView)
-        hosting.frame = self.contentView!.bounds
-        hosting.autoresizingMask = [.width, .height]
+        hosting.translatesAutoresizingMaskIntoConstraints = false
         
         // Add to panel
-        self.contentView?.addSubview(hosting)
+        guard let contentView = self.contentView else { return }
+        contentView.addSubview(hosting)
+        
+        // Use constraints instead of autoresizing mask
+        NSLayoutConstraint.activate([
+            hosting.topAnchor.constraint(equalTo: contentView.topAnchor),
+            hosting.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            hosting.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            hosting.bottomAnchor.constraint(equalTo: contentView.bottomAnchor)
+        ])
+        
         self.hostingView = hosting
         
         print("🎨 SwiftUI content added")

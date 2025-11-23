@@ -79,8 +79,10 @@ struct NotesView: View {
                         .textFieldStyle(.plain)
                         .font(.system(size: 18, weight: .semibold))
                         .padding()
-                        .onChange(of: noteTitle) { newValue in
-                            manager.updateNote(selectedNote, title: newValue)
+                        .onChange(of: noteTitle) {
+                            DispatchQueue.main.async {
+                                manager.updateNote(selectedNote, title: noteTitle)
+                            }
                         }
                     
                     Divider()
@@ -90,8 +92,10 @@ struct NotesView: View {
                         .font(.system(size: 14))
                         .padding(8)
                         .focused($isEditorFocused)
-                        .onChange(of: noteContent) { newValue in
-                            manager.updateNote(selectedNote, content: newValue)
+                        .onChange(of: noteContent) {
+                            DispatchQueue.main.async {
+                                manager.updateNote(selectedNote, content: noteContent)
+                            }
                         }
                     
                     // Footer with actions

@@ -4,7 +4,7 @@
 //
 
 import SwiftUI
-internal import Combine
+import Combine
 
 class AppSettings: ObservableObject {
     @Published var enableMouseActivation = true {

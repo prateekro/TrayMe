@@ -85,9 +85,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func setupHotkey() {
         print("⌨️ Setting up hotkey: Cmd+Ctrl+Shift+U")
         
-        // Use NSEvent with flags matching
-        let mask: NSEvent.ModifierFlags = [.command, .control, .shift]
-        
         // Local monitor for when app has focus
         localEventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             if event.modifierFlags.contains(.command) && 
