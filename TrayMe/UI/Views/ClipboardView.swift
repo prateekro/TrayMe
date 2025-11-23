@@ -132,17 +132,6 @@ struct ClipboardView: View {
                 .frame(width: 300)
             }
         }
-        .onDisappear {
-            // Save and copy to clipboard when hiding the view
-            if let item = selectedItem {
-                saveWorkItem?.cancel()
-                manager.updateItemContent(item, newContent: editedContent)
-                // Copy the updated item to clipboard
-                if let updatedItem = manager.items.first(where: { $0.id == item.id }) {
-                    manager.copyToClipboard(updatedItem)
-                }
-            }
-        }
     }
     
     func selectItem(_ item: ClipboardItem) {
@@ -317,7 +306,9 @@ struct ClipboardDetailView: View {
             // Actions
             HStack(spacing: 12) {
                 Button("Copy") {
-                    manager.copyToClipboard(item)
+                    // Copy the current edited content to clipboard
+                    let tempItem = ClipboardItem(content: editedContent, type: item.type)
+                    manager.copyToClipboard(tempItem)
                 }
                 .buttonStyle(.borderedProminent)
                 
