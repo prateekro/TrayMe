@@ -9,6 +9,7 @@ import AppKit
 class MainPanel: NSPanel {
     private var hostingView: NSView?
     private var clickOutsideMonitor: Any?
+    private var scrollOutsideMonitor: Any?
     
     // Store references to managers
     private let clipboardManager: ClipboardManager
@@ -61,6 +62,9 @@ class MainPanel: NSPanel {
         // Setup click outside to close
         setupClickOutsideMonitor()
         
+        // Setup scroll down to close
+        setupScrollOutsideMonitor()
+        
         // Initially hidden
         self.orderOut(nil)
         
@@ -89,6 +93,31 @@ class MainPanel: NSPanel {
         }
         
         print("✅ Click outside monitor setup")
+    }
+    
+    func setupScrollOutsideMonitor() {
+        // Monitor for scroll down when panel is visible
+        scrollOutsideMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+            guard let self = self, self.isVisible else { return event }
+            
+            // Get mouse location
+            let mouseLocation = NSEvent.mouseLocation
+            
+            // Check if mouse is outside the panel
+            if !self.frame.contains(mouseLocation) {
+                // Detect scroll down (negative delta)
+                let delta = event.scrollingDeltaY
+                
+                if delta < -5 { // Small threshold to avoid accidental closes
+                    print("📜 Scroll down outside panel - closing")
+                    self.hide()
+                }
+            }
+            
+            return event
+        }
+        
+        print("✅ Scroll outside monitor setup")
     }
     
     private func setupContent() {
@@ -144,6 +173,9 @@ class MainPanel: NSPanel {
     }
     
     func show() {
+        // Don't show if already visible
+        guard !self.isVisible else { return }
+        
         positionAtTopOfScreen()
         
         // Slide down animation
@@ -183,6 +215,11 @@ class MainPanel: NSPanel {
     deinit {
         // Clean up click monitor
         if let monitor = clickOutsideMonitor {
+            NSEvent.removeMonitor(monitor)
+        }
+        
+        // Clean up scroll monitor
+        if let monitor = scrollOutsideMonitor {
             NSEvent.removeMonitor(monitor)
         }
     }

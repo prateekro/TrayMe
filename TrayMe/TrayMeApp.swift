@@ -61,7 +61,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         // Setup mouse tracking for top-screen activation
         mouseTracker = MouseTracker { [weak self] in
-            self?.togglePanel()
+            // Only show panel when scrolling down at top (don't toggle)
+            self?.mainPanel?.show()
         }
         
         print("✅ TrayMe ready!")
@@ -113,20 +114,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     func requestAccessibilityPermissions() {
-        let options: NSDictionary = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true]
+        // Only check permissions, don't request yet
+        let options: NSDictionary = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: false]
         let accessEnabled = AXIsProcessTrustedWithOptions(options)
         
         if accessEnabled {
-            print("✅ Accessibility permissions granted - global hotkey will work!")
+            print("✅ Accessibility permissions granted!")
+            print("   ✓ Global hotkey (Cmd+Ctrl+Shift+U) will work system-wide")
         } else {
-            print("⚠️  IMPORTANT: Accessibility permissions NOT granted")
-            print("   The global hotkey (Cmd+Ctrl+Shift+U) will ONLY work when the app is in focus")
+            print("ℹ️  Accessibility permissions not granted (optional)")
+            print("   • Global hotkey will only work when app is focused")
+            print("   • Mouse scroll-down gesture works WITHOUT permissions ✨")
             print("")
-            print("   To enable global hotkey (works even when app is hidden):")
-            print("   1. Go to: System Settings > Privacy & Security > Accessibility")
-            print("   2. Enable 'TrayMe'")
-            print("   3. Restart the app")
-            print("")
+            print("   To enable global hotkey (optional):")
+            print("   Go to: System Settings > Privacy & Security > Accessibility")
+            print("   Enable 'TrayMe' and restart the app")
         }
     }
     
