@@ -7,26 +7,57 @@ import SwiftUI
 internal import Combine
 
 class AppSettings: ObservableObject {
-    @Published var enableMouseActivation = true
-    @Published var enableHotkeyActivation = true
-    @Published var hotkeyModifiers = "cmd+shift"
-    @Published var hotkeyKey = "U"
+    @Published var enableMouseActivation = true {
+        didSet { save() }
+    }
+    @Published var enableHotkeyActivation = true {
+        didSet { save() }
+    }
+    @Published var hotkeyModifiers = "cmd+shift" {
+        didSet { save() }
+    }
+    @Published var hotkeyKey = "U" {
+        didSet { save() }
+    }
     
-    @Published var clipboardMaxHistory = 100
-    @Published var ignorePasswordManagers = true
-    @Published var clipboardEnabled = true
+    @Published var clipboardMaxHistory = 100 {
+        didSet { save() }
+    }
+    @Published var ignorePasswordManagers = true {
+        didSet { save() }
+    }
+    @Published var clipboardEnabled = true {
+        didSet { save() }
+    }
     
-    @Published var filesMaxStorage = 50
-    @Published var filesEnabled = true
+    @Published var filesMaxStorage = 50 {
+        didSet { save() }
+    }
+    @Published var filesEnabled = true {
+        didSet { save() }
+    }
     
-    @Published var notesEnabled = true
-    @Published var notesSyncWithiCloud = false
+    @Published var notesEnabled = true {
+        didSet { save() }
+    }
+    @Published var notesSyncWithiCloud = false {
+        didSet { save() }
+    }
     
-    @Published var panelWidth: Double = 900
-    @Published var panelHeight: Double = 400
-    @Published var defaultTab = "clipboard"
+    @Published var panelWidth: Double = 900 {
+        didSet { save() }
+    }
+    @Published var panelHeight: Double = 400 {
+        didSet { save() }
+    }
+    @Published var defaultTab = "clipboard" {
+        didSet { save() }
+    }
+    
+    private var isLoading = false
     
     init() {
+        isLoading = true
         // Load from UserDefaults if available
         if let saved = UserDefaults.standard.object(forKey: "enableMouseActivation") as? Bool {
             enableMouseActivation = saved
@@ -70,9 +101,13 @@ class AppSettings: ObservableObject {
         if let saved = UserDefaults.standard.string(forKey: "defaultTab") {
             defaultTab = saved
         }
+        isLoading = false
     }
     
     func save() {
+        // Don't save during initial load
+        guard !isLoading else { return }
+        
         UserDefaults.standard.set(enableMouseActivation, forKey: "enableMouseActivation")
         UserDefaults.standard.set(enableHotkeyActivation, forKey: "enableHotkeyActivation")
         UserDefaults.standard.set(hotkeyModifiers, forKey: "hotkeyModifiers")
@@ -89,4 +124,3 @@ class AppSettings: ObservableObject {
         UserDefaults.standard.set(defaultTab, forKey: "defaultTab")
     }
 }
-

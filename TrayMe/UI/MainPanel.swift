@@ -103,7 +103,7 @@ class MainPanel: NSPanel {
         // Wrap in hosting view
         let hosting = NSHostingView(rootView: contentView)
         hosting.frame = self.contentView!.bounds
-        hosting.autoresizingMask = [NSView.AutoresizingMask.width, NSView.AutoresizingMask.height]
+        hosting.autoresizingMask = [.width, .height]
         
         // Add to panel
         self.contentView?.addSubview(hosting)

@@ -39,7 +39,7 @@ class MouseTracker {
                     tracker.handleScrollEvent(event: event)
                 }
                 
-                return Unmanaged.passRetained(event)
+                return Unmanaged.passUnretained(event)
             },
             userInfo: Unmanaged.passUnretained(self).toOpaque()
         ) else {

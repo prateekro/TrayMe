@@ -7,10 +7,14 @@ echo "🚀 TrayMe - Xcode Project Setup"
 echo "================================"
 echo ""
 
-PROJECT_DIR="/Users/prateekro/Documents/projects/TrayMe"
+# Use provided directory or current directory
+PROJECT_DIR="${1:-$(pwd)}"
 PROJECT_NAME="TrayMe"
 
-cd "$PROJECT_DIR" || exit 1
+cd "$PROJECT_DIR" || {
+    echo "❌ Cannot access directory: $PROJECT_DIR"
+    exit 1
+}
 
 echo "📁 Current directory: $PROJECT_DIR"
 echo ""

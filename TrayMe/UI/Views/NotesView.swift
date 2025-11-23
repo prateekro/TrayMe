@@ -5,6 +5,20 @@
 
 import SwiftUI
 
+// Static formatters for performance
+private let sharedDateFormatter: DateFormatter = {
+    let formatter = DateFormatter()
+    formatter.dateStyle = .short
+    formatter.timeStyle = .short
+    return formatter
+}()
+
+private let sharedRelativeDateFormatter: RelativeDateTimeFormatter = {
+    let formatter = RelativeDateTimeFormatter()
+    formatter.unitsStyle = .abbreviated
+    return formatter
+}()
+
 struct NotesView: View {
     @EnvironmentObject var manager: NotesManager
     @State private var noteContent: String = ""
@@ -65,8 +79,8 @@ struct NotesView: View {
                         .textFieldStyle(.plain)
                         .font(.system(size: 18, weight: .semibold))
                         .padding()
-                        .onChange(of: noteTitle) {
-                            manager.updateNote(selectedNote, title: noteTitle)
+                        .onChange(of: noteTitle) { newValue in
+                            manager.updateNote(selectedNote, title: newValue)
                         }
                     
                     Divider()
@@ -76,8 +90,8 @@ struct NotesView: View {
                         .font(.system(size: 14))
                         .padding(8)
                         .focused($isEditorFocused)
-                        .onChange(of: noteContent) {
-                            manager.updateNote(selectedNote, content: noteContent)
+                        .onChange(of: noteContent) { newValue in
+                            manager.updateNote(selectedNote, content: newValue)
                         }
                     
                     // Footer with actions
@@ -96,7 +110,7 @@ struct NotesView: View {
                         
                         Spacer()
                         
-                        Text("Modified \(selectedNote.modifiedDate, formatter: dateFormatter)")
+                        Text("Modified \(selectedNote.modifiedDate, formatter: sharedDateFormatter)")
                             .font(.system(size: 10))
                             .foregroundColor(.secondary)
                         
@@ -149,13 +163,6 @@ struct NotesView: View {
         noteTitle = note.title
         noteContent = note.content
     }
-    
-    private var dateFormatter: DateFormatter {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .short
-        formatter.timeStyle = .short
-        return formatter
-    }
 }
 
 struct NoteListItem: View {
@@ -186,7 +193,7 @@ struct NoteListItem: View {
                     .lineLimit(2)
             }
             
-            Text(note.modifiedDate, formatter: relativeDateFormatter)
+            Text(note.modifiedDate, formatter: sharedRelativeDateFormatter)
                 .font(.system(size: 10))
                 .foregroundColor(.secondary)
         }
@@ -196,11 +203,5 @@ struct NoteListItem: View {
                 .fill(isSelected ? Color.accentColor.opacity(0.2) : Color.clear)
         )
         .padding(.horizontal, 4)
-    }
-    
-    private var relativeDateFormatter: RelativeDateTimeFormatter {
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .abbreviated
-        return formatter
     }
 }

@@ -50,11 +50,11 @@ struct MainPanelView: View {
                 
                 // Settings button
                 Button(action: {
-                    // Close the panel first
+                    // Close the panel first (if we can get the reference)
                     if let appDelegate = NSApplication.shared.delegate as? AppDelegate {
                         appDelegate.mainPanel?.hide()
                     }
-                    // Open settings using SwiftUI environment action
+                    // Always open settings regardless
                     openSettings()
                 }) {
                     Image(systemName: "gearshape")

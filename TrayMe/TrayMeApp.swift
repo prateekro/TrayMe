@@ -83,7 +83,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     func setupHotkey() {
-        print("⌨️ Setting up hotkey: Cmd+Ctrl+Shift+T")
+        print("⌨️ Setting up hotkey: Cmd+Ctrl+Shift+U")
         
         // Use NSEvent with flags matching
         let mask: NSEvent.ModifierFlags = [.command, .control, .shift]
@@ -93,7 +93,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             if event.modifierFlags.contains(.command) && 
                event.modifierFlags.contains(.control) && 
                event.modifierFlags.contains(.shift) && 
-               event.keyCode == 17 {
+               event.keyCode == 32 { // keyCode 32 = U
                 print("🔥 Local hotkey triggered!")
                 self?.togglePanel()
                 return nil
@@ -106,7 +106,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             if event.modifierFlags.contains(.command) && 
                event.modifierFlags.contains(.control) && 
                event.modifierFlags.contains(.shift) && 
-               event.keyCode == 17 {
+               event.keyCode == 32 { // keyCode 32 = U
                 print("🔥 Global hotkey triggered!")
                 self?.togglePanel()
             }
