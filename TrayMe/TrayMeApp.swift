@@ -120,7 +120,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             print("✅ Accessibility permissions granted - global hotkey will work!")
         } else {
             print("⚠️  IMPORTANT: Accessibility permissions NOT granted")
-            print("   The global hotkey (Cmd+Ctrl+Shift+T) will ONLY work when the app is in focus")
+            print("   The global hotkey (Cmd+Ctrl+Shift+U) will ONLY work when the app is in focus")
             print("")
             print("   To enable global hotkey (works even when app is hidden):")
             print("   1. Go to: System Settings > Privacy & Security > Accessibility")
