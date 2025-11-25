@@ -5,11 +5,19 @@
 
 import SwiftUI
 import UniformTypeIdentifiers
+import Quartz
+import QuickLookThumbnailing
 
 struct FilesView: View {
     @EnvironmentObject var manager: FilesManager
     @State private var hoveredFile: UUID?
     @State private var isDragging = false
+    @State private var selectedFile: FileItem?
+    @State private var quickLookTrigger = false
+    @FocusState private var isFileAreaFocused: Bool
+    @FocusState private var isSearchFocused: Bool
+    @State private var eventMonitor: Any?
+    @State private var panelHideObserver: NSObjectProtocol?
     
     var body: some View {
         VStack(spacing: 0) {
@@ -19,6 +27,11 @@ struct FilesView: View {
                     .foregroundColor(.secondary)
                 TextField("Search files...", text: $manager.searchText)
                     .textFieldStyle(.plain)
+                    .focused($isSearchFocused)
+                    .onKeyPress(.space) {
+                        // Let space through only when search field is focused
+                        return isSearchFocused ? .ignored : .handled
+                    }
                 
                 if !manager.searchText.isEmpty {
                     Button(action: { manager.searchText = "" }) {
@@ -46,28 +59,69 @@ struct FilesView: View {
                         ForEach(manager.filteredFiles) { file in
                             FileCard(
                                 file: file,
-                                isHovered: hoveredFile == file.id
+                                isHovered: hoveredFile == file.id,
+                                isSelected: selectedFile?.id == file.id
                             )
                             .onHover { hovering in
                                 hoveredFile = hovering ? file.id : nil
+                            }
+                            .onTapGesture {
+                                selectedFile = file
+                                isSearchFocused = false
+                                isFileAreaFocused = true
                             }
                         }
                     }
                     .padding()
                 }
+                .focusable()
+                .focused($isFileAreaFocused)
+                .onTapGesture {
+                    // Clicking empty area clears selection and removes search focus
+                    selectedFile = nil
+                    isSearchFocused = false
+                    isFileAreaFocused = true
+                }
                 .background(
                     DropZoneView(isDragging: $isDragging)
                         .opacity(isDragging ? 0.5 : 0)
                 )
+                .background(QuickLookPreview(url: selectedFile?.resolvedURL(), isPresented: $quickLookTrigger))
             }
             
             // Footer
             HStack {
-                Text("\(manager.files.count) files")
-                    .font(.system(size: 11))
-                    .foregroundColor(.secondary)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("\(manager.files.count) files")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                    
+                    HStack(spacing: 8) {
+                        HStack(spacing: 2) {
+                            Image(systemName: "doc.badge.plus")
+                                .font(.system(size: 8))
+                            Text("Stored")
+                                .font(.system(size: 7))
+                        }
+                        .foregroundColor(.green)
+                        
+                        HStack(spacing: 2) {
+                            Image(systemName: "link")
+                                .font(.system(size: 8))
+                            Text("Ref")
+                                .font(.system(size: 7))
+                        }
+                        .foregroundColor(.blue)
+                    }
+                    .font(.system(size: 8))
+                }
                 
                 Spacer()
+                
+                Toggle("Copy Files", isOn: $manager.shouldCopyFiles)
+                    .toggleStyle(.checkbox)
+                    .font(.system(size: 11))
+                    .help("Copy files to app storage instead of just referencing them")
                 
                 if !manager.files.isEmpty {
                     Button("Clear All") {
@@ -82,9 +136,78 @@ struct FilesView: View {
             .padding(.vertical, 8)
             .background(Color(NSColor.windowBackgroundColor).opacity(0.5))
         }
+        .onAppear {
+            setupEventMonitor()
+        }
+        .onDisappear {
+            removeEventMonitor()
+        }
         .onDrop(of: [.fileURL], isTargeted: $isDragging) { providers in
             handleDrop(providers: providers)
             return true
+        }
+    }
+    
+    // MARK: - Helper Functions
+    
+    func setupEventMonitor() {
+        eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            // Handle space bar - toggle Quick Look
+            if event.keyCode == 49 && selectedFile != nil && !isSearchFocused {
+                if let panel = QLPreviewPanel.shared(), panel.isVisible {
+                    panel.orderOut(nil)
+                } else {
+                    quickLookTrigger = true
+                }
+                return nil // Event handled, don't pass it on
+            }
+            
+            // Handle arrow keys for navigation when Quick Look is shown
+            if let panel = QLPreviewPanel.shared(), panel.isVisible {
+                let currentIndex = manager.filteredFiles.firstIndex { $0.id == selectedFile?.id } ?? 0
+                
+                switch event.keyCode {
+                case 123, 125: // Left arrow or Down arrow - previous file
+                    if currentIndex > 0 {
+                        selectedFile = manager.filteredFiles[currentIndex - 1]
+                        quickLookTrigger = true
+                        return nil
+                    }
+                case 124, 126: // Right arrow or Up arrow - next file
+                    if currentIndex < manager.filteredFiles.count - 1 {
+                        selectedFile = manager.filteredFiles[currentIndex + 1]
+                        quickLookTrigger = true
+                        return nil
+                    }
+                default:
+                    break
+                }
+            }
+            
+            return event // Pass other events through
+        }
+        
+        // Listen for panel hide notification to close Quick Look
+        panelHideObserver = NotificationCenter.default.addObserver(
+            forName: NSNotification.Name("MainPanelWillHide"),
+            object: nil,
+            queue: .main
+        ) { _ in
+            if let panel = QLPreviewPanel.shared(), panel.isVisible {
+                panel.orderOut(nil)
+            }
+        }
+    }
+    
+    func removeEventMonitor() {
+        if let monitor = eventMonitor {
+            NSEvent.removeMonitor(monitor)
+            eventMonitor = nil
+        }
+        
+        if let observer = panelHideObserver {
+            NotificationCenter.default.removeObserver(observer)
+            panelHideObserver = nil
         }
     }
     
@@ -137,26 +260,74 @@ struct FileCard: View {
     @EnvironmentObject var manager: FilesManager
     let file: FileItem
     let isHovered: Bool
+    let isSelected: Bool
+    @State private var thumbnail: NSImage?
+    
+    private var isCopiedFile: Bool {
+        // Check if file is in the app's storage folder
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let storagePath = appSupport.appendingPathComponent("TrayMe/StoredFiles").path
+        return file.url.path.starts(with: storagePath)
+    }
     
     var body: some View {
         VStack(spacing: 8) {
-            // File thumbnail/icon with preview for images
-            if let thumbnail = generateThumbnail() {
-                Image(nsImage: thumbnail)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .frame(width: 80, height: 60)
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
-            } else if let icon = file.icon {
-                Image(nsImage: icon)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 48, height: 48)
-            } else {
-                Image(systemName: "doc")
-                    .font(.system(size: 48))
-                    .foregroundColor(.secondary)
+            // File thumbnail/icon with badge
+            ZStack(alignment: .topTrailing) {
+                if let thumb = thumbnail {
+                    Image(nsImage: thumb)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: 80, height: 60)
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                } else if let cachedThumb = file.thumbnail {
+                    // Use cached thumbnail from FileItem
+                    Image(nsImage: cachedThumb)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: 80, height: 60)
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                } else if let icon = file.icon {
+                    Image(nsImage: icon)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 48, height: 48)
+                } else {
+                    Image(systemName: "doc")
+                        .font(.system(size: 48))
+                        .foregroundColor(.secondary)
+                }
+                
+                // Storage type badge
+                if isCopiedFile {
+                    HStack(spacing: 2) {
+                        Image(systemName: "doc.badge.plus")
+                            .font(.system(size: 8))
+                        Text("Stored")
+                            .font(.system(size: 7, weight: .semibold))
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 2)
+                    .background(Color.green)
+                    .clipShape(RoundedRectangle(cornerRadius: 3))
+                    .offset(x: -2, y: 2)
+                } else {
+                    HStack(spacing: 2) {
+                        Image(systemName: "link")
+                            .font(.system(size: 8))
+                        Text("Ref")
+                            .font(.system(size: 7, weight: .semibold))
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 2)
+                    .background(Color.blue.opacity(0.8))
+                    .clipShape(RoundedRectangle(cornerRadius: 3))
+                    .offset(x: -2, y: 2)
+                }
             }
+            .frame(width: 80, height: 60)
             
             // File name
             Text(file.name)
@@ -179,6 +350,18 @@ struct FileCard: View {
                             .font(.system(size: 12))
                     }
                     .buttonStyle(.plain)
+                    .help("Open")
+                    
+                    Button(action: {
+                        if let thumb = thumbnail {
+                            copyImageToClipboard(thumb)
+                        }
+                    }) {
+                        Image(systemName: "photo.on.rectangle")
+                            .font(.system(size: 12))
+                    }
+                    .buttonStyle(.plain)
+                    .help("Copy Image")
                     
                     Button(action: {
                         manager.revealInFinder(file)
@@ -187,6 +370,7 @@ struct FileCard: View {
                             .font(.system(size: 12))
                     }
                     .buttonStyle(.plain)
+                    .help("Show in Finder")
                     
                     Button(action: {
                         manager.removeFile(file)
@@ -196,6 +380,7 @@ struct FileCard: View {
                             .foregroundColor(.red)
                     }
                     .buttonStyle(.plain)
+                    .help("Delete")
                 }
                 .padding(.top, 4)
             }
@@ -204,35 +389,257 @@ struct FileCard: View {
         .padding(8)
         .background(
             RoundedRectangle(cornerRadius: 8)
-                .fill(isHovered ? Color.accentColor.opacity(0.1) : Color(NSColor.controlBackgroundColor))
+                .fill(isSelected ? Color.accentColor.opacity(0.2) : isHovered ? Color.accentColor.opacity(0.1) : Color(NSColor.controlBackgroundColor))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .strokeBorder(isSelected ? Color.accentColor : Color.clear, lineWidth: 2)
         )
         .onDrag {
             NSItemProvider(object: file.url as NSURL)
         }
+        .onAppear {
+            loadThumbnail()
+        }
+        .contextMenu {
+            Text(isCopiedFile ? "📦 Stored File" : "🔗 Referenced File")
+                .font(.system(size: 11, weight: .semibold))
+            
+            Divider()
+            
+            Button("Open") {
+                manager.openFile(file)
+            }
+            
+            Button("Show in Finder") {
+                manager.revealInFinder(file)
+            }
+            
+            if thumbnail != nil {
+                Button("Copy Image") {
+                    if let thumb = thumbnail {
+                        copyImageToClipboard(thumb)
+                    }
+                }
+            }
+            
+            Divider()
+            
+            Button("Delete", role: .destructive) {
+                manager.removeFile(file)
+            }
+        }
     }
     
-    func generateThumbnail() -> NSImage? {
-        // Only generate thumbnails for images
+    func loadThumbnail() {
+        // First check if we already have a cached thumbnail
+        if file.thumbnail != nil {
+            return // Already have persisted thumbnail
+        }
+        
+        Task {
+            let thumb = await FileThumbnailGenerator.generateThumbnailAsync(for: file.url, size: CGSize(width: 160, height: 120))
+            await MainActor.run {
+                if let thumb = thumb {
+                    self.thumbnail = thumb
+                    // Save thumbnail to file item for persistence
+                    manager.updateFileThumbnail(file.id, thumbnail: thumb)
+                }
+            }
+        }
+    }
+    
+    func copyImageToClipboard(_ image: NSImage) {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.writeObjects([image])
+    }
+}
+
+// MARK: - Quick Look Preview
+
+struct QuickLookPreview: NSViewRepresentable {
+    let url: URL?
+    @Binding var isPresented: Bool
+    
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        return view
+    }
+    
+    func updateNSView(_ nsView: NSView, context: Context) {
+        if isPresented, let url = url {
+            DispatchQueue.main.async {
+                context.coordinator.showPreview(for: url, in: nsView.window)
+                // Reset trigger
+                isPresented = false
+            }
+        }
+    }
+    
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+    
+    class Coordinator: NSObject, QLPreviewPanelDataSource, QLPreviewPanelDelegate {
+        var previewURL: URL?
+        var isAccessingSecurityScope = false
+        
+        func showPreview(for url: URL, in window: NSWindow?) {
+            // Stop accessing previous URL if needed
+            if isAccessingSecurityScope, let previousURL = previewURL {
+                previousURL.stopAccessingSecurityScopedResource()
+                isAccessingSecurityScope = false
+            }
+            
+            // Start accessing security-scoped resource for referenced files
+            isAccessingSecurityScope = url.startAccessingSecurityScopedResource()
+            
+            self.previewURL = url
+            
+            guard let panel = QLPreviewPanel.shared() else { return }
+            panel.dataSource = self
+            panel.delegate = self
+            
+            if panel.isVisible {
+                panel.reloadData()
+            } else {
+                panel.makeKeyAndOrderFront(nil)
+            }
+        }
+        
+        deinit {
+            // Clean up security-scoped access
+            if isAccessingSecurityScope, let url = previewURL {
+                url.stopAccessingSecurityScopedResource()
+            }
+        }
+        
+        // MARK: - QLPreviewPanelDataSource
+        
+        func numberOfPreviewItems(in panel: QLPreviewPanel!) -> Int {
+            return previewURL != nil ? 1 : 0
+        }
+        
+        func previewPanel(_ panel: QLPreviewPanel!, previewItemAt index: Int) -> QLPreviewItem! {
+            return previewURL as QLPreviewItem?
+        }
+        
+        // MARK: - QLPreviewPanelDelegate
+        
+        func previewPanel(_ panel: QLPreviewPanel!, handle event: NSEvent!) -> Bool {
+            return false
+        }
+        
+        func previewPanel(_ panel: QLPreviewPanel!, sourceFrameOnScreenFor item: QLPreviewItem!) -> NSRect {
+            return .zero
+        }
+    }
+}
+
+// MARK: - Thumbnail Generator
+
+class FileThumbnailGenerator {
+    // Async version without semaphore - avoids priority inversion
+    static func generateThumbnailAsync(for url: URL, size: CGSize) async -> NSImage? {
+        // Try QuickLook thumbnail first
+        if let quickLookThumbnail = await generateQuickLookThumbnailAsync(for: url, size: size) {
+            return quickLookThumbnail
+        }
+        
+        // For images, generate directly
         let imageExtensions = ["jpg", "jpeg", "png", "gif", "bmp", "tiff", "heic", "webp"]
-        guard imageExtensions.contains(file.fileType.lowercased()) else {
+        if imageExtensions.contains(url.pathExtension.lowercased()) {
+            return generateImageThumbnail(for: url, size: size)
+        }
+        
+        // Return workspace icon as fallback
+        return NSWorkspace.shared.icon(forFile: url.path)
+    }
+    
+    static func generateQuickLookThumbnailAsync(for url: URL, size: CGSize) async -> NSImage? {
+        if #available(macOS 10.15, *) {
+            let scale = await NSScreen.main?.backingScaleFactor ?? 2.0
+            let request = QLThumbnailGenerator.Request(
+                fileAt: url,
+                size: size,
+                scale: scale,
+                representationTypes: .thumbnail
+            )
+            
+            return await withCheckedContinuation { continuation in
+                QLThumbnailGenerator.shared.generateRepresentations(for: request) { representation, type, error in
+                    continuation.resume(returning: representation?.nsImage)
+                }
+            }
+        }
+        return nil
+    }
+    
+    // Keep the old sync version for backwards compatibility
+    static func generateThumbnail(for url: URL, size: CGSize) -> NSImage? {
+        // Try QuickLook thumbnail first
+        if let quickLookThumbnail = generateQuickLookThumbnail(for: url, size: size) {
+            return quickLookThumbnail
+        }
+        
+        // For images, generate directly
+        let imageExtensions = ["jpg", "jpeg", "png", "gif", "bmp", "tiff", "heic", "webp"]
+        if imageExtensions.contains(url.pathExtension.lowercased()) {
+            return generateImageThumbnail(for: url, size: size)
+        }
+        
+        // Return workspace icon as fallback
+        return NSWorkspace.shared.icon(forFile: url.path)
+    }
+    
+    static func generateQuickLookThumbnail(for url: URL, size: CGSize) -> NSImage? {
+        if #available(macOS 10.15, *) {
+            let scale = NSScreen.main?.backingScaleFactor ?? 2.0
+            let request = QLThumbnailGenerator.Request(
+                fileAt: url,
+                size: size,
+                scale: scale,
+                representationTypes: .thumbnail
+            )
+            
+            let semaphore = DispatchSemaphore(value: 0)
+            var thumbnail: NSImage?
+            
+            QLThumbnailGenerator.shared.generateRepresentations(for: request) { representation, type, error in
+                if let error = error {
+                    print("⚠️ Thumbnail generation error for \(url.lastPathComponent): \(error.localizedDescription)")
+                }
+                if let rep = representation {
+                    thumbnail = rep.nsImage
+                }
+                semaphore.signal()
+            }
+            
+            // Increased timeout to 5 seconds to avoid warnings
+            _ = semaphore.wait(timeout: .now() + 5.0)
+            return thumbnail
+        }
+        return nil
+    }
+    
+    static func generateImageThumbnail(for url: URL, size: CGSize) -> NSImage? {
+        guard let image = NSImage(contentsOf: url) else {
             return nil
         }
         
-        guard let image = NSImage(contentsOf: file.url) else {
-            return nil
-        }
-        
-        // Generate thumbnail
-        let targetSize = NSSize(width: 160, height: 120)
-        let thumbnail = NSImage(size: targetSize)
-        
+        let thumbnail = NSImage(size: size)
         thumbnail.lockFocus()
-        image.draw(in: NSRect(origin: .zero, size: targetSize),
-                   from: NSRect(origin: .zero, size: image.size),
+        
+        let imageRect = NSRect(origin: .zero, size: image.size)
+        let thumbnailRect = NSRect(origin: .zero, size: size)
+        
+        image.draw(in: thumbnailRect,
+                   from: imageRect,
                    operation: .copy,
                    fraction: 1.0)
-        thumbnail.unlockFocus()
         
+        thumbnail.unlockFocus()
         return thumbnail
     }
 }

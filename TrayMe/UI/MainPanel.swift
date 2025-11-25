@@ -307,6 +307,9 @@ class MainPanel: NSPanel {
     func hide() {
         guard let screen = NSScreen.main else { return }
         
+        // Close Quick Look if it's open
+        NotificationCenter.default.post(name: NSNotification.Name("MainPanelWillHide"), object: nil)
+        
         NSAnimationContext.runAnimationGroup({ context in
             context.duration = 0.25
             context.timingFunction = CAMediaTimingFunction(name: .easeIn)
