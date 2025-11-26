@@ -11,8 +11,14 @@ class FilesManager: ObservableObject {
     @Published var files: [FileItem] = []
     @Published var searchText: String = ""
     @AppStorage("shouldCopyFiles") var shouldCopyFiles: Bool = false
+    @AppStorage("maxFiles") private var storedMaxFiles: Int = 50
     
-    let maxFiles = 50  // Exposed for UI display
+    // Computed property to enforce max limit of 100
+    var maxFiles: Int {
+        get { min(storedMaxFiles, 100) }
+        set { storedMaxFiles = min(newValue, 100) }
+    }
+    
     private var thumbnailCache: [UUID: NSImage] = [:]
     private var storageFolderURL: URL? {
         guard let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
@@ -49,9 +55,6 @@ class FilesManager: ObservableObject {
             } else {
                 // Copy failed - show error and use reference instead
                 print("⚠️ Failed to copy file \(url.lastPathComponent), using reference instead")
-                DispatchQueue.main.async {
-                    // TODO: Show user-facing error notification
-                }
                 finalURL = url
             }
         } else {
@@ -63,13 +66,24 @@ class FilesManager: ObservableObject {
         DispatchQueue.main.async {
             self.files.insert(newFile, at: 0)
             
-            // Limit number of files
+            // Enforce limit (for single file additions via other methods)
             if self.files.count > self.maxFiles {
+                // Remove oldest files beyond limit
+                let toRemove = self.files.suffix(self.files.count - self.maxFiles)
+                for file in toRemove {
+                    if let storageFolder = self.storageFolderURL, 
+                       self.isFileInStorage(file.url, storageFolder: storageFolder) {
+                        try? FileManager.default.removeItem(at: file.url)
+                    }
+                }
                 self.files = Array(self.files.prefix(self.maxFiles))
             }
             
+            self.saveToDisk()
+            
             // Populate metadata asynchronously to avoid blocking
-            Task {
+            // Only for single file additions (e.g., from clipboard)
+            Task(priority: .utility) {
                 await self.populateFileMetadata(fileID: newFile.id)
             }
         }
@@ -81,7 +95,7 @@ class FilesManager: ObservableObject {
         var file = files[index]
         
         // Run metadata population in background
-        _ = await Task.detached {
+        await Task.detached(priority: .utility) {
             file.populateMetadata()
             
             // Update back on main actor
@@ -89,7 +103,6 @@ class FilesManager: ObservableObject {
                 // Re-check index in case array was modified
                 if let currentIndex = self.files.firstIndex(where: { $0.id == fileID }) {
                     self.files[currentIndex] = file
-                    self.saveToDisk()
                 }
             }
         }.value
@@ -125,7 +138,45 @@ class FilesManager: ObservableObject {
     }
     
     func addFiles(urls: [URL]) {
-        urls.forEach { addFile(url: $0) }
+        // Filter out duplicates and files that already exist
+        let newURLs = urls.filter { url in
+            !files.contains(where: { $0.url == url })
+        }
+        
+        guard !newURLs.isEmpty else { return }
+        
+        // Process files in batch
+        var newFiles: [FileItem] = []
+        
+        for url in newURLs {
+            // Copy file if setting is enabled, otherwise just reference
+            let finalURL: URL
+            if shouldCopyFiles {
+                if let copiedURL = copyFileToStorage(url) {
+                    finalURL = copiedURL
+                } else {
+                    print("⚠️ Failed to copy file \(url.lastPathComponent), using reference instead")
+                    finalURL = url
+                }
+            } else {
+                finalURL = url
+            }
+            
+            newFiles.append(FileItem(url: finalURL))
+        }
+        
+        // Add all new files at once and save only once
+        DispatchQueue.main.async {
+            self.files.insert(contentsOf: newFiles, at: 0)
+            
+            // No truncation here - validation happens before drop in FilesView
+            // This ensures we don't lose existing files
+            
+            self.saveToDisk()
+            
+            // DON'T populate metadata on add - do it lazily when files are viewed
+            // This prevents the app from freezing when adding many files
+        }
     }
     
     func removeFile(_ file: FileItem) {
@@ -264,6 +315,29 @@ class FilesManager: ObservableObject {
             cacheThumbnail(thumbnail, for: fileID)
             saveToDisk()
         }
+    }
+    
+    func openStorageFolder() {
+        guard let storageFolder = storageFolderURL else {
+            print("❌ Storage folder not available")
+            return
+        }
+        NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: storageFolder.path)
+    }
+    
+    func refreshAllThumbnails() {
+        // Clear all cached thumbnails to force regeneration
+        thumbnailCache.removeAll()
+        
+        // Clear thumbnail data from file items
+        for index in files.indices {
+            files[index].thumbnailData = nil
+        }
+        
+        saveToDisk()
+        
+        // Trigger view refresh by publishing changes
+        objectWillChange.send()
     }
     
     // MARK: - Persistence

@@ -21,6 +21,10 @@ struct FilesView: View {
     @State private var showClearAllConfirmation = false
     @State private var showCopiedFeedback = false
     @State private var clearAction: ClearAction?
+    @State private var showDropLimitAlert = false
+    @State private var dropLimitMessage = ""
+    @State private var showLimitReductionAlert = false
+    @State private var attemptedLimit = 25
     
     enum ClearAction {
         case allReferences
@@ -168,49 +172,96 @@ struct FilesView: View {
                 
                 if !manager.files.isEmpty {
                     Menu {
+                        // Open storage folder
                         Button(action: {
-                            clearAction = .allReferences
-                            showClearAllConfirmation = true
+                            manager.openStorageFolder()
                         }) {
-                            Label {
-                                Text("Delete All References")
-                                    .foregroundColor(.orange)
-                            } icon: {
-                                Image(systemName: "link")
-                                    .foregroundColor(.orange)
-                            }
+                            Label("Open Storage Folder", systemImage: "folder")
                         }
-                        .keyboardShortcut(.init("r"), modifiers: [.command, .shift])
+                        .keyboardShortcut(.init("o"), modifiers: [.command, .shift])
                         
-                        Button(action: {
-                            clearAction = .allStored
-                            showClearAllConfirmation = true
-                        }) {
-                            Label {
-                                Text("Delete All Stored Files")
-                                    .foregroundColor(.green)
-                            } icon: {
-                                Image(systemName: "doc.badge.plus")
-                                    .foregroundColor(.green)
+                        // File limit selector
+                        Menu {
+                            ForEach([25, 50, 75, 100], id: \.self) { limit in
+                                Button(action: {
+                                    // Check if reducing limit would exceed current file count
+                                    if limit < manager.files.count {
+                                        attemptedLimit = limit
+                                        showLimitReductionAlert = true
+                                    } else {
+                                        manager.maxFiles = limit
+                                    }
+                                }) {
+                                    HStack {
+                                        Text("\(limit) files")
+                                        if manager.maxFiles == limit {
+                                            Image(systemName: "checkmark")
+                                        }
+                                    }
+                                }
                             }
+                        } label: {
+                            Label("File Limit (\(manager.maxFiles))", systemImage: "number.square")
                         }
-                        .keyboardShortcut(.init("s"), modifiers: [.command, .shift])
+                        
+                        // Refresh thumbnails
+                        Button(action: {
+                            manager.refreshAllThumbnails()
+                        }) {
+                            Label("Refresh All Thumbnails", systemImage: "arrow.clockwise")
+                        }
                         
                         Divider()
                         
-                        Button(action: {
-                            clearAction = .everything
-                            showClearAllConfirmation = true
-                        }) {
-                            Label {
-                                Text("Delete Everything")
-                                    .foregroundColor(.red)
-                            } icon: {
-                                Image(systemName: "trash.fill")
-                                    .foregroundColor(.red)
+                        // Delete submenu
+                        Menu {
+                            Button(action: {
+                                clearAction = .allReferences
+                                showClearAllConfirmation = true
+                            }) {
+                                Label {
+                                    Text("All References")
+                                        .foregroundColor(.orange)
+                                } icon: {
+                                    Image(systemName: "link")
+                                        .foregroundColor(.orange)
+                                }
                             }
+                            .keyboardShortcut(.init("r"), modifiers: [.command, .shift])
+                            
+                            Button(action: {
+                                clearAction = .allStored
+                                showClearAllConfirmation = true
+                            }) {
+                                Label {
+                                    Text("All Stored Files")
+                                        .foregroundColor(.green)
+                                } icon: {
+                                    Image(systemName: "doc.badge.plus")
+                                        .foregroundColor(.green)
+                                }
+                            }
+                            .keyboardShortcut(.init("s"), modifiers: [.command, .shift])
+                            
+                            Divider()
+                            
+                            Button(action: {
+                                clearAction = .everything
+                                showClearAllConfirmation = true
+                            }) {
+                                Label {
+                                    Text("Everything")
+                                        .foregroundColor(.red)
+                                } icon: {
+                                    Image(systemName: "trash.fill")
+                                        .foregroundColor(.red)
+                                }
+                            }
+                            .keyboardShortcut(.delete, modifiers: [.command, .shift])
+                        } label: {
+                            Label("Delete...", systemImage: "trash")
+                                .foregroundColor(.red)
                         }
-                        .keyboardShortcut(.delete, modifiers: [.command, .shift])
                     } label: {
                         HStack(spacing: 4) {
                             Image(systemName: "ellipsis.circle")
@@ -223,7 +274,7 @@ struct FilesView: View {
                     .menuStyle(.borderlessButton)
                     .menuIndicator(.hidden)
                     .fixedSize()
-                    .help("Delete options")
+                    .help("File management options")
                 }
             }
             .padding(.horizontal)
@@ -264,6 +315,19 @@ struct FilesView: View {
             }
         } message: {
             Text(alertMessage)
+        }
+        .alert("Cannot Add Files", isPresented: $showDropLimitAlert) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(dropLimitMessage)
+        }
+        .alert("Cannot Reduce Limit", isPresented: $showLimitReductionAlert) {
+            Button("Cancel", role: .cancel) { }
+            Button("Open Manage Menu") {
+                // User can manually delete files from the manage menu
+            }
+        } message: {
+            Text("You have \(manager.files.count) files but want to set limit to \(attemptedLimit).\n\nPlease remove \(manager.files.count - attemptedLimit) file\(manager.files.count - attemptedLimit == 1 ? "" : "s") first using the Manage menu delete options.")
         }
         .onAppear {
             setupEventMonitor()
@@ -397,14 +461,35 @@ struct FilesView: View {
     }
     
     func handleDrop(providers: [NSItemProvider]) {
+        let dropCount = providers.count
+        let currentCount = manager.files.count
+        let availableSlots = manager.maxFiles - currentCount
+        
+        // Check if drop would exceed limit
+        if dropCount > availableSlots {
+            dropLimitMessage = "You're trying to add \(dropCount) file\(dropCount == 1 ? "" : "s"), but only \(availableSlots) slot\(availableSlots == 1 ? "" : "s") available (limit: \(manager.maxFiles)).\n\nPlease remove some files first or increase the limit in the Manage menu."
+            showDropLimitAlert = true
+            return
+        }
+        
+        // Collect all URLs first, then batch add
+        var urlsToAdd: [URL] = []
+        let group = DispatchGroup()
+        
         for provider in providers {
+            group.enter()
             provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { (item, error) in
+                defer { group.leave() }
                 if let data = item as? Data,
                    let url = URL(dataRepresentation: data, relativeTo: nil) {
-                    DispatchQueue.main.async {
-                        manager.addFile(url: url)
-                    }
+                    urlsToAdd.append(url)
                 }
+            }
+        }
+        
+        group.notify(queue: .main) {
+            if !urlsToAdd.isEmpty {
+                manager.addFiles(urls: urlsToAdd)
             }
         }
     }
@@ -624,7 +709,13 @@ struct FileCard: View {
             return // Already have persisted thumbnail
         }
         
-        Task {
+        // Check manager's cache before generating
+        if let cached = manager.getCachedThumbnail(for: file.id) {
+            self.thumbnail = cached
+            return
+        }
+        
+        Task(priority: .utility) {
             // Use resolvedURL() to handle security-scoped bookmarks for referenced files
             guard let resolvedURL = file.resolvedURL() else {
                 print("⚠️ Cannot resolve file URL for thumbnail: \(file.name)")
@@ -765,9 +856,36 @@ struct QuickLookPreview: NSViewRepresentable {
 
 // MARK: - Thumbnail Generator
 
+actor ThumbnailTaskCoordinator {
+    private var activeTasks = 0
+    private let maxConcurrentTasks = 8
+    
+    func acquireSlot() async {
+        while activeTasks >= maxConcurrentTasks {
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        activeTasks += 1
+    }
+    
+    func releaseSlot() {
+        activeTasks -= 1
+    }
+}
+
 class FileThumbnailGenerator {
-    // Async version without semaphore - avoids priority inversion
+    private static let coordinator = ThumbnailTaskCoordinator()
+    
+    // Async version with concurrency limiting
     static func generateThumbnailAsync(for url: URL, size: CGSize) async -> NSImage? {
+        // Acquire a slot (wait if too many tasks are active)
+        await coordinator.acquireSlot()
+        
+        defer {
+            Task {
+                await coordinator.releaseSlot()
+            }
+        }
+        
         // Start accessing security-scoped resource for referenced files
         let isAccessing = url.startAccessingSecurityScopedResource()
         defer {
@@ -776,33 +894,40 @@ class FileThumbnailGenerator {
             }
         }
         
-        // Try QuickLook thumbnail first
-        if let quickLookThumbnail = await generateQuickLookThumbnailAsync(for: url, size: size) {
-            return quickLookThumbnail
-        }
+        // Strategy: Use fast workspace icon for most files, only generate thumbnails for images
+        // This is what Finder does - workspace icons are instant and look great
         
-        // For images, generate directly
         let imageExtensions = ["jpg", "jpeg", "png", "gif", "bmp", "tiff", "heic", "webp"]
+        
+        // For images, try QuickLook thumbnail (fast for images)
         if imageExtensions.contains(url.pathExtension.lowercased()) {
-            return generateImageThumbnail(for: url, size: size)
+            if let quickLookThumbnail = await generateQuickLookThumbnailAsync(for: url, size: size) {
+                return quickLookThumbnail
+            }
         }
         
-        // Return workspace icon as fallback
+        // For everything else (and image fallback), use workspace icon - instant!
+        // This includes PDFs, videos, documents, etc. - their file type icons look professional
         return NSWorkspace.shared.icon(forFile: url.path)
     }
     
     static func generateQuickLookThumbnailAsync(for url: URL, size: CGSize) async -> NSImage? {
         if #available(macOS 10.15, *) {
             let scale = NSScreen.main?.backingScaleFactor ?? 2.0
+            
+            // Use icon mode for faster generation - perfect for file managers
             let request = QLThumbnailGenerator.Request(
                 fileAt: url,
                 size: size,
                 scale: scale,
-                representationTypes: .thumbnail
+                representationTypes: .icon  // Changed from .thumbnail - much faster!
             )
             
             return await withCheckedContinuation { continuation in
                 QLThumbnailGenerator.shared.generateRepresentations(for: request) { representation, type, error in
+                    if let error = error {
+                        print("⚠️ Thumbnail generation failed: \(error.localizedDescription)")
+                    }
                     continuation.resume(returning: representation?.nsImage)
                 }
             }
