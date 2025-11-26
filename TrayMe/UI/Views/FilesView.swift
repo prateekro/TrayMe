@@ -18,6 +18,15 @@ struct FilesView: View {
     @FocusState private var isSearchFocused: Bool
     @State private var eventMonitor: Any?
     @State private var panelHideObserver: NSObjectProtocol?
+    @State private var showClearAllConfirmation = false
+    @State private var showCopiedFeedback = false
+    @State private var clearAction: ClearAction?
+    
+    enum ClearAction {
+        case allReferences
+        case allStored
+        case everything
+    }
     
     var body: some View {
         VStack(spacing: 0) {
@@ -50,6 +59,22 @@ struct FilesView: View {
             if manager.files.isEmpty {
                 // Empty state with drop zone
                 DropZoneView(isDragging: $isDragging)
+            } else if manager.filteredFiles.isEmpty {
+                // Empty search results
+                VStack(spacing: 12) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 48))
+                        .foregroundColor(.secondary)
+                    
+                    Text("No files found")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(.primary)
+                    
+                    Text("Try a different search term")
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 // Files grid
                 ScrollView {
@@ -60,7 +85,8 @@ struct FilesView: View {
                             FileCard(
                                 file: file,
                                 isHovered: hoveredFile == file.id,
-                                isSelected: selectedFile?.id == file.id
+                                isSelected: selectedFile?.id == file.id,
+                                showCopiedFeedback: $showCopiedFeedback
                             )
                             .onHover { hovering in
                                 hoveredFile = hovering ? file.id : nil
@@ -93,9 +119,18 @@ struct FilesView: View {
             // Footer
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("\(manager.files.count) files")
-                        .font(.system(size: 11))
-                        .foregroundColor(.secondary)
+                    HStack(spacing: 4) {
+                        Text("\(manager.files.count)/\(manager.maxFiles) files")
+                            .font(.system(size: 11))
+                            .foregroundColor(manager.files.count >= manager.maxFiles ? .orange : .secondary)
+                        
+                        if manager.files.count >= manager.maxFiles {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.system(size: 9))
+                                .foregroundColor(.orange)
+                                .help("File limit reached - oldest files will be removed")
+                        }
+                    }
                     
                     HStack(spacing: 8) {
                         HStack(spacing: 2) {
@@ -112,12 +147,19 @@ struct FilesView: View {
                             Text("Ref")
                                 .font(.system(size: 7))
                         }
-                        .foregroundColor(.blue)
+                        .foregroundColor(.orange)
                     }
                     .font(.system(size: 8))
                 }
                 
                 Spacer()
+                
+                if selectedFile != nil {
+                    Text("Press Space for Quick Look")
+                        .font(.system(size: 9))
+                        .foregroundColor(.secondary.opacity(0.8))
+                        .padding(.trailing, 8)
+                }
                 
                 Toggle("Copy files", isOn: $manager.shouldCopyFiles)
                     .toggleStyle(.checkbox)
@@ -125,17 +167,103 @@ struct FilesView: View {
                     .help("Copy files to app storage instead of just referencing them")
                 
                 if !manager.files.isEmpty {
-                    Button("Clear All") {
-                        manager.clearAll()
+                    Menu {
+                        Button(action: {
+                            clearAction = .allReferences
+                            showClearAllConfirmation = true
+                        }) {
+                            Label {
+                                Text("Delete All References")
+                                    .foregroundColor(.orange)
+                            } icon: {
+                                Image(systemName: "link")
+                                    .foregroundColor(.orange)
+                            }
+                        }
+                        .keyboardShortcut(.init("r"), modifiers: [.command, .shift])
+                        
+                        Button(action: {
+                            clearAction = .allStored
+                            showClearAllConfirmation = true
+                        }) {
+                            Label {
+                                Text("Delete All Stored Files")
+                                    .foregroundColor(.green)
+                            } icon: {
+                                Image(systemName: "doc.badge.plus")
+                                    .foregroundColor(.green)
+                            }
+                        }
+                        .keyboardShortcut(.init("s"), modifiers: [.command, .shift])
+                        
+                        Divider()
+                        
+                        Button(action: {
+                            clearAction = .everything
+                            showClearAllConfirmation = true
+                        }) {
+                            Label {
+                                Text("Delete Everything")
+                                    .foregroundColor(.red)
+                            } icon: {
+                                Image(systemName: "trash.fill")
+                                    .foregroundColor(.red)
+                            }
+                        }
+                        .keyboardShortcut(.delete, modifiers: [.command, .shift])
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "ellipsis.circle")
+                                .font(.system(size: 11))
+                            Text("Manage")
+                                .font(.system(size: 11))
+                        }
+                        .foregroundColor(.secondary)
                     }
-                    .buttonStyle(.plain)
-                    .font(.system(size: 11))
-                    .foregroundColor(.red)
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .fixedSize()
+                    .help("Delete options")
                 }
             }
             .padding(.horizontal)
             .padding(.vertical, 8)
             .background(Color(NSColor.windowBackgroundColor).opacity(0.5))
+            
+            // Copy feedback overlay
+            if showCopiedFeedback {
+                VStack {
+                    Spacer()
+                    HStack {
+                        Spacer()
+                        HStack(spacing: 6) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(.green)
+                            Text("Image copied to clipboard")
+                                .font(.system(size: 11))
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(Color(NSColor.controlBackgroundColor))
+                        .cornerRadius(6)
+                        .shadow(radius: 4)
+                        .padding()
+                        Spacer()
+                    }
+                }
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .zIndex(100)
+            }
+        }
+        .alert(alertTitle, isPresented: $showClearAllConfirmation) {
+            Button("Cancel", role: .cancel) { 
+                clearAction = nil
+            }
+            Button(alertButtonText, role: .destructive) {
+                performClearAction()
+            }
+        } message: {
+            Text(alertMessage)
         }
         .onAppear {
             setupEventMonitor()
@@ -147,6 +275,62 @@ struct FilesView: View {
             handleDrop(providers: providers)
             return true
         }
+    }
+    
+    // MARK: - Alert Properties
+    
+    private var alertTitle: String {
+        switch clearAction {
+        case .allReferences:
+            return "Delete All References?"
+        case .allStored:
+            return "Delete All Stored Files?"
+        case .everything:
+            return "Delete Everything?"
+        case .none:
+            return ""
+        }
+    }
+    
+    private var alertMessage: String {
+        switch clearAction {
+        case .allReferences:
+            return "This will remove all file references but keep stored files. Referenced files will remain in their original locations."
+        case .allStored:
+            return "This will permanently delete all files stored in the app. File references will remain. This action cannot be undone."
+        case .everything:
+            return "This will permanently delete all stored files and remove all references. This action cannot be undone."
+        case .none:
+            return ""
+        }
+    }
+    
+    private var alertButtonText: String {
+        switch clearAction {
+        case .allReferences:
+            return "Delete References"
+        case .allStored:
+            return "Delete Files"
+        case .everything:
+            return "Delete Everything"
+        case .none:
+            return ""
+        }
+    }
+    
+    private func performClearAction() {
+        guard let action = clearAction else { return }
+        
+        switch action {
+        case .allReferences:
+            manager.clearAllReferences()
+        case .allStored:
+            manager.clearAllStored()
+        case .everything:
+            manager.clearAll()
+        }
+        
+        clearAction = nil
     }
     
     // MARK: - Helper Functions
@@ -264,6 +448,7 @@ struct FileCard: View {
     let isSelected: Bool
     @State private var thumbnail: NSImage?
     @State private var isCopiedFile: Bool = false
+    @Binding var showCopiedFeedback: Bool
     
     var body: some View {
         VStack(spacing: 8) {
@@ -318,7 +503,7 @@ struct FileCard: View {
                     .foregroundColor(.white)
                     .padding(.horizontal, 4)
                     .padding(.vertical, 2)
-                    .background(Color.blue.opacity(0.8))
+                    .background(Color.orange)
                     .clipShape(RoundedRectangle(cornerRadius: 3))
                     .offset(x: -2, y: 2)
                     .help("Reference only - original file remains in its location")
@@ -483,6 +668,13 @@ struct FileCard: View {
             let pasteboard = NSPasteboard.general
             pasteboard.clearContents()
             pasteboard.writeObjects([fullImage])
+            
+            // Show success feedback
+            showCopiedFeedback = true
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds
+                showCopiedFeedback = false
+            }
         } else {
             print("⚠️ Failed to load image from file")
         }

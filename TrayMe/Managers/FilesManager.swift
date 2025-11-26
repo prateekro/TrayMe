@@ -12,7 +12,7 @@ class FilesManager: ObservableObject {
     @Published var searchText: String = ""
     @AppStorage("shouldCopyFiles") var shouldCopyFiles: Bool = false
     
-    private let maxFiles = 50
+    let maxFiles = 50  // Exposed for UI display
     private var thumbnailCache: [UUID: NSImage] = [:]
     private var storageFolderURL: URL? {
         guard let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
@@ -157,6 +157,43 @@ class FilesManager: ObservableObject {
         
         files.removeAll()
         thumbnailCache.removeAll()
+        saveToDisk()
+    }
+    
+    func clearAllReferences() {
+        // Remove only referenced files (not stored in app)
+        guard let storageFolder = storageFolderURL else {
+            files.removeAll()
+            thumbnailCache.removeAll()
+            saveToDisk()
+            return
+        }
+        
+        let referencedFiles = files.filter { !isFileInStorage($0.url, storageFolder: storageFolder) }
+        for file in referencedFiles {
+            thumbnailCache.removeValue(forKey: file.id)
+        }
+        
+        files.removeAll { !isFileInStorage($0.url, storageFolder: storageFolder) }
+        saveToDisk()
+    }
+    
+    func clearAllStored() {
+        // Delete all stored files but keep references
+        guard let storageFolder = storageFolderURL else { return }
+        
+        let storedFiles = files.filter { isFileInStorage($0.url, storageFolder: storageFolder) }
+        
+        for file in storedFiles {
+            do {
+                try FileManager.default.removeItem(at: file.url)
+                thumbnailCache.removeValue(forKey: file.id)
+            } catch {
+                print("⚠️ Failed to delete stored file: \(error.localizedDescription)")
+            }
+        }
+        
+        files.removeAll { isFileInStorage($0.url, storageFolder: storageFolder) }
         saveToDisk()
     }
     
