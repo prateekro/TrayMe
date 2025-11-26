@@ -76,6 +76,7 @@ struct FilesView: View {
                 }
                 .focusable()
                 .focused($isFileAreaFocused)
+                .focusEffectDisabled()
                 .onTapGesture {
                     // Clicking empty area clears selection and removes search focus
                     selectedFile = nil
