@@ -54,7 +54,13 @@ class ClipboardManager: ObservableObject {
             return
         }
         
-        // Get clipboard content
+        // Check for image first (higher priority)
+        if let image = pasteboard.readObjects(forClasses: [NSImage.self])?.first as? NSImage {
+            addImageItem(image: image)
+            return
+        }
+        
+        // Get clipboard content as text
         if let string = pasteboard.string(forType: .string), !string.isEmpty {
             addItem(content: string)
         }
@@ -71,13 +77,42 @@ class ClipboardManager: ObservableObject {
     
     func addItem(content: String) {
         // Don't add duplicates of the most recent item
-        if let lastItem = items.first, lastItem.content == content {
+        if let lastItem = items.first, lastItem.content == content && lastItem.type != .image {
             return
         }
         
         // Determine clipboard type
         let type = determineType(content: content)
         let newItem = ClipboardItem(content: content, type: type)
+        
+        DispatchQueue.main.async {
+            self.items.insert(newItem, at: 0)
+            
+            // Limit history size
+            if self.items.count > self.maxHistorySize {
+                self.items = Array(self.items.prefix(self.maxHistorySize))
+            }
+            
+            self.saveToDisk()
+        }
+    }
+    
+    func addImageItem(image: NSImage) {
+        // Create a content description
+        let size = image.size
+        let content = "Image (\(Int(size.width))×\(Int(size.height)))"
+        
+        // Don't add duplicate images (compare by content description)
+        if let lastItem = items.first, 
+           lastItem.type == .image,
+           lastItem.content == content {
+            return
+        }
+        
+        let newItem = ClipboardItem(content: content, type: .image)
+        
+        // Save image to cache (not in JSON)
+        newItem.saveImage(image)
         
         DispatchQueue.main.async {
             self.items.insert(newItem, at: 0)
@@ -109,7 +144,13 @@ class ClipboardManager: ObservableObject {
     
     func copyToClipboard(_ item: ClipboardItem) {
         pasteboard.clearContents()
-        pasteboard.setString(item.content, forType: .string)
+        
+        if item.type == .image, let image = item.loadImage() {
+            pasteboard.writeObjects([image])
+        } else {
+            pasteboard.setString(item.content, forType: .string)
+        }
+        
         changeCount = pasteboard.changeCount
     }
     
@@ -128,6 +169,11 @@ class ClipboardManager: ObservableObject {
     }
     
     func deleteItem(_ item: ClipboardItem) {
+        // Delete cached image if exists
+        if item.type == .image {
+            item.deleteImage()
+        }
+        
         items.removeAll { $0.id == item.id }
         favorites.removeAll { $0.id == item.id }
         saveToDisk()
@@ -135,6 +181,9 @@ class ClipboardManager: ObservableObject {
     
     func updateItemContent(_ item: ClipboardItem, newContent: String) {
         if let index = items.firstIndex(where: { $0.id == item.id }) {
+            // Don't update image items
+            guard item.type != .image else { return }
+            
             let type = determineType(content: newContent)
             items[index] = ClipboardItem(id: item.id, content: newContent, type: type, date: item.timestamp, isFavorite: item.isFavorite)
             

@@ -150,10 +150,18 @@ struct ClipboardItemRow: View {
     
     var body: some View {
         HStack(spacing: 12) {
-            // Type icon
-            Image(systemName: iconForType(item.type))
-                .foregroundColor(colorForType(item.type))
-                .frame(width: 20)
+            // Type icon or image thumbnail
+            if item.type == .image, let image = item.image {
+                Image(nsImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: 40, height: 40)
+                    .clipShape(RoundedRectangle(cornerRadius: 4))
+            } else {
+                Image(systemName: iconForType(item.type))
+                    .foregroundColor(colorForType(item.type))
+                    .frame(width: 20)
+            }
             
             // Content
             VStack(alignment: .leading, spacing: 2) {
@@ -241,10 +249,19 @@ struct FavoriteClipCard: View {
                 Spacer()
             }
             
-            Text(item.displayContent)
-                .font(.system(size: 11))
-                .lineLimit(2)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            // Show image thumbnail or text content
+            if item.type == .image, let image = item.image {
+                Image(nsImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(maxWidth: .infinity, maxHeight: 40)
+                    .clipShape(RoundedRectangle(cornerRadius: 4))
+            } else {
+                Text(item.displayContent)
+                    .font(.system(size: 11))
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
             
             Spacer()
         }
@@ -276,7 +293,7 @@ struct ClipboardDetailView: View {
         VStack(spacing: 0) {
             // Header
             HStack {
-                Text("Edit Item")
+                Text(item.type == .image ? "Image Preview" : "Edit Item")
                     .font(.system(size: 14, weight: .semibold))
                 
                 Spacer()
@@ -292,30 +309,49 @@ struct ClipboardDetailView: View {
             
             Divider()
             
-            // Content editor
-            TextEditor(text: $editedContent)
-                .font(.system(size: 12))
-                .padding(8)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .onChange(of: editedContent) {
-                    onContentChange()
+            // Content editor or image preview
+            if item.type == .image, let image = item.image {
+                // Image preview
+                ScrollView {
+                    VStack(spacing: 12) {
+                        Image(nsImage: image)
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(maxWidth: .infinity)
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                            .padding()
+                        
+                        Text(item.content)
+                            .font(.system(size: 12))
+                            .foregroundColor(.secondary)
+                    }
                 }
+            } else {
+                // Text editor
+                TextEditor(text: $editedContent)
+                    .font(.system(size: 12))
+                    .padding(8)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .onChange(of: editedContent) {
+                        onContentChange()
+                    }
+            }
             
             Divider()
             
             // Actions
             HStack(spacing: 12) {
                 Button("Copy") {
-                    // Copy the current edited content to clipboard
-                    let tempItem = ClipboardItem(content: editedContent, type: item.type)
-                    manager.copyToClipboard(tempItem)
+                    manager.copyToClipboard(item)
                 }
                 .buttonStyle(.borderedProminent)
                 
-                Button("Save") {
-                    onSave()
+                if item.type != .image {
+                    Button("Save") {
+                        onSave()
+                    }
+                    .buttonStyle(.bordered)
                 }
-                .buttonStyle(.bordered)
                 
                 Spacer()
                 
