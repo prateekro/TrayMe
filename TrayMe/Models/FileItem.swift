@@ -43,6 +43,8 @@ struct FileItem: Identifiable, Codable {
     
     // Helper to populate icon and bookmark data asynchronously
     nonisolated mutating func populateMetadata() {
+        print("🔖 populateMetadata called for: \(url.lastPathComponent)")
+        
         // Get file icon
         let icon = NSWorkspace.shared.icon(forFile: url.path)
         self.iconData = icon.tiffRepresentation
@@ -54,7 +56,10 @@ struct FileItem: Identifiable, Codable {
                 includingResourceValuesForKeys: nil,
                 relativeTo: nil
             )
+            print("✅ Bookmark created successfully for: \(url.lastPathComponent)")
+            print("✅ Bookmark data size: \(bookmarkData?.count ?? 0) bytes")
         } catch {
+            print("❌ Failed to create bookmark for \(url.lastPathComponent): \(error.localizedDescription)")
             self.bookmarkData = nil
         }
     }
@@ -72,7 +77,10 @@ struct FileItem: Identifiable, Codable {
     
     
     enum CodingKeys: String, CodingKey {
-        case id, url, name, fileType, size, addedDate, iconData, bookmarkData, thumbnailData
+        case id, url, name, fileType, size, addedDate
+        // iconData removed - regenerated instantly with NSWorkspace.shared.icon()
+        // bookmarkData removed - stored separately for fast JSON loading
+        // thumbnailData removed - thumbnails regenerated on demand (fast with workspace icons)
     }
     
     var thumbnail: NSImage? {
@@ -83,8 +91,11 @@ struct FileItem: Identifiable, Codable {
     }
     
     // Helper to resolve URL from bookmark if available
-    // Returns nil if bookmark resolution fails and fallback URL is invalid
+    // Bookmarks are stored separately for fast JSON loading
     func resolvedURL() -> URL? {
+        // Try to load bookmark from cache first
+        let bookmarkData = FilesManager.loadBookmark(for: id) ?? self.bookmarkData
+        
         // If we have bookmark data, try to resolve it
         if let bookmarkData = bookmarkData {
             do {
@@ -95,26 +106,17 @@ struct FileItem: Identifiable, Codable {
                     relativeTo: nil,
                     bookmarkDataIsStale: &isStale
                 )
-                if isStale {
-                    print("⚠️ Bookmark is stale for \(name)")
-                }
+                // Don't check fileExists here - expensive!
+                // Let the caller handle file access errors
                 return resolvedURL
             } catch {
-                print("⚠️ Failed to resolve bookmark for \(name): \(error)")
-                // Bookmark failed - check if fallback URL exists
-                if FileManager.default.fileExists(atPath: url.path) {
-                    return url
-                } else {
-                    print("❌ Fallback URL also invalid for \(name)")
-                    return nil
-                }
+                // Bookmark failed - return fallback URL without validation
+                // File existence will be verified when actually accessed
+                return url
             }
         }
-        // No bookmark - return URL if file exists
-        if FileManager.default.fileExists(atPath: url.path) {
-            return url
-        }
-        return nil
+        // No bookmark - return URL (validation happens on access)
+        return url
     }
 }
 

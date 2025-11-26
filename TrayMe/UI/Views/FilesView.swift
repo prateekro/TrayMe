@@ -60,7 +60,18 @@ struct FilesView: View {
             .padding()
             
             // Drop zone or file list
-            if manager.files.isEmpty {
+            if manager.isLoading {
+                // Loading state
+                VStack(spacing: 16) {
+                    ProgressView()
+                        .scaleEffect(1.2)
+                    
+                    Text("Loading files...")
+                        .font(.system(size: 14))
+                        .foregroundColor(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if manager.files.isEmpty {
                 // Empty state with drop zone
                 DropZoneView(isDragging: $isDragging)
             } else if manager.filteredFiles.isEmpty {
@@ -117,7 +128,7 @@ struct FilesView: View {
                     DropZoneView(isDragging: $isDragging)
                         .opacity(isDragging ? 0.5 : 0)
                 )
-                .background(QuickLookPreview(url: selectedFile?.resolvedURL(), isPresented: $quickLookTrigger))
+                .background(QuickLookPreview(file: selectedFile, isPresented: $quickLookTrigger))
             }
             
             // Footer
@@ -202,13 +213,6 @@ struct FilesView: View {
                             }
                         } label: {
                             Label("File Limit (\(manager.maxFiles))", systemImage: "number.square")
-                        }
-                        
-                        // Refresh thumbnails
-                        Button(action: {
-                            manager.refreshAllThumbnails()
-                        }) {
-                            Label("Refresh All Thumbnails", systemImage: "arrow.clockwise")
                         }
                         
                         Divider()
@@ -531,21 +535,19 @@ struct FileCard: View {
     let file: FileItem
     let isHovered: Bool
     let isSelected: Bool
-    @State private var thumbnail: NSImage?
     @State private var isCopiedFile: Bool = false
+    @State private var imageThumbnail: NSImage? = nil
     @Binding var showCopiedFeedback: Bool
     
     // Computed property for instant icon - no async needed!
     private var displayIcon: NSImage {
-        // Priority: cached thumbnail > generated thumbnail > workspace icon
-        if let thumb = thumbnail {
+        // For images, show actual thumbnail if loaded
+        if let thumb = imageThumbnail {
             return thumb
         }
-        if let cached = file.thumbnail {
-            return cached
-        }
+        
         if let resolvedURL = file.resolvedURL() {
-            // Instant workspace icon - no async needed
+            // Native workspace icon - instant and perfect
             return NSWorkspace.shared.icon(forFile: resolvedURL.path)
         }
         // Fallback to file type icon
@@ -680,9 +682,9 @@ struct FileCard: View {
                 let storageStandardized = storageFolder.standardizedFileURL.path
                 isCopiedFile = fileStandardized.hasPrefix(storageStandardized)
             }
-            // Only load enhanced thumbnails for images in background (optional enhancement)
-            // Everything else already has instant workspace icon from displayIcon
-            loadThumbnailIfImage()
+            
+            // Load image thumbnails (fast and look great like Finder)
+            loadImageThumbnail()
         }
         .contextMenu {
             Text(isCopiedFile ? "📦 Stored File" : "🔗 Referenced File")
@@ -698,7 +700,9 @@ struct FileCard: View {
                 manager.revealInFinder(file)
             }
             
-            if thumbnail != nil {
+            // Only show "Copy Image" for image files
+            let imageExtensions = ["jpg", "jpeg", "png", "gif", "bmp", "tiff", "heic", "webp"]
+            if imageExtensions.contains(file.fileType.lowercased()) {
                 Button("Copy Image") {
                     copyFullImageToClipboard()
                 }
@@ -712,37 +716,49 @@ struct FileCard: View {
         }
     }
     
-    func loadThumbnailIfImage() {
-        // Only load enhanced thumbnails for images
+    func loadImageThumbnail() {
+        // Only generate thumbnails for images - everything else uses workspace icons
         let imageExtensions = ["jpg", "jpeg", "png", "gif", "bmp", "tiff", "heic", "webp"]
         guard imageExtensions.contains(file.fileType.lowercased()) else {
-            return // Non-images already have great workspace icons
+            return // Non-images get workspace icons (instant)
         }
         
-        // First check if we already have a cached thumbnail
-        if file.thumbnail != nil {
-            return // Already have persisted thumbnail
-        }
+        guard let resolvedURL = file.resolvedURL() else { return }
         
-        // Check manager's cache before generating
-        if let cached = manager.getCachedThumbnail(for: file.id) {
-            self.thumbnail = cached
+        // Check cache FIRST (super fast - just file read, no JSON parsing!)
+        if let cached = FilesManager.getCachedThumbnail(for: resolvedURL) {
+            self.imageThumbnail = cached
             return
         }
         
+        // Generate thumbnail in background if not cached
         Task(priority: .utility) {
-            // Use resolvedURL() to handle security-scoped bookmarks for referenced files
-            guard let resolvedURL = file.resolvedURL() else {
-                print("⚠️ Cannot resolve file URL for thumbnail: \(file.name)")
-                return
-            }
-            let thumb = await FileThumbnailGenerator.generateThumbnailAsync(for: resolvedURL, size: CGSize(width: 160, height: 120))
-            await MainActor.run {
-                if let thumb = thumb {
-                    self.thumbnail = thumb
-                    // Save thumbnail to file item for persistence
-                    manager.updateFileThumbnail(file.id, thumbnail: thumb)
+            // Start security-scoped access
+            let isAccessing = resolvedURL.startAccessingSecurityScopedResource()
+            defer {
+                if isAccessing {
+                    resolvedURL.stopAccessingSecurityScopedResource()
                 }
+            }
+            
+            // Load and resize image
+            guard let image = NSImage(contentsOf: resolvedURL) else { return }
+            
+            let targetSize = CGSize(width: 160, height: 120)
+            let thumbnail = NSImage(size: targetSize)
+            thumbnail.lockFocus()
+            
+            let imageRect = NSRect(origin: .zero, size: image.size)
+            let thumbnailRect = NSRect(origin: .zero, size: targetSize)
+            
+            image.draw(in: thumbnailRect, from: imageRect, operation: .copy, fraction: 1.0)
+            thumbnail.unlockFocus()
+            
+            // Cache to disk for next time (PNG is small and fast)
+            FilesManager.cacheThumbnail(thumbnail, for: resolvedURL)
+            
+            await MainActor.run {
+                self.imageThumbnail = thumbnail
             }
         }
     }
@@ -790,7 +806,7 @@ struct FileCard: View {
 // MARK: - Quick Look Preview
 
 struct QuickLookPreview: NSViewRepresentable {
-    let url: URL?
+    let file: FileItem?
     @Binding var isPresented: Bool
     
     func makeNSView(context: Context) -> NSView {
@@ -799,9 +815,11 @@ struct QuickLookPreview: NSViewRepresentable {
     }
     
     func updateNSView(_ nsView: NSView, context: Context) {
-        if isPresented, let url = url {
+        if isPresented, let file = file {
+            print("🔍 QuickLook triggered for: \(file.name)")
+            
             DispatchQueue.main.async {
-                context.coordinator.showPreview(for: url, in: nsView.window)
+                context.coordinator.showPreview(for: file, in: nsView.window)
                 // Reset trigger
                 isPresented = false
             }
@@ -813,36 +831,93 @@ struct QuickLookPreview: NSViewRepresentable {
     }
     
     class Coordinator: NSObject, QLPreviewPanelDataSource, QLPreviewPanelDelegate {
-        var previewURL: URL?
+        var previewFile: FileItem?
+        var resolvedURL: URL?
         var isAccessingSecurityScope = false
         
-        func showPreview(for url: URL, in window: NSWindow?) {
-            // Clean up previous URL's security scope if it's different
-            if let previousURL = previewURL, previousURL != url, isAccessingSecurityScope {
-                previousURL.stopAccessingSecurityScopedResource()
+        func showPreview(for file: FileItem, in window: NSWindow?) {
+            print("🔍 Coordinator.showPreview called for: \(file.name)")
+            
+            // Clean up previous file's security scope
+            if isAccessingSecurityScope, let url = resolvedURL {
+                url.stopAccessingSecurityScopedResource()
                 isAccessingSecurityScope = false
             }
             
-            // Update to new URL
-            self.previewURL = url
+            // Update to new file
+            self.previewFile = file
             
-            // Start accessing security-scoped resource for new URL
+            // Resolve URL from bookmark if available
+            guard let url = resolveURLForQuickLook(file: file) else {
+                print("❌ Failed to resolve URL for file")
+                return
+            }
+            
+            self.resolvedURL = url
+            print("🔍 Resolved URL: \(url.path)")
+            print("🔍 File exists: \(FileManager.default.fileExists(atPath: url.path))")
+            
+            // Start accessing security-scoped resource
             isAccessingSecurityScope = url.startAccessingSecurityScopedResource()
+            print("🔍 Security scope access: \(isAccessingSecurityScope)")
             
-            guard let panel = QLPreviewPanel.shared() else { return }
+            guard let panel = QLPreviewPanel.shared() else {
+                print("❌ QLPreviewPanel.shared() returned nil")
+                return
+            }
+            
+            print("🔍 Setting up panel")
             panel.dataSource = self
             panel.delegate = self
             
             if panel.isVisible {
+                print("🔍 Panel already visible, reloading")
                 panel.reloadData()
             } else {
+                print("🔍 Showing panel")
                 panel.makeKeyAndOrderFront(nil)
             }
+            
+            print("🔍 Panel isVisible: \(panel.isVisible)")
+        }
+        
+        // Resolve URL with proper security scope for QuickLook
+        private func resolveURLForQuickLook(file: FileItem) -> URL? {
+            print("🔍 resolveURLForQuickLook for: \(file.name)")
+            print("🔍 Has bookmark data: \(file.bookmarkData != nil)")
+            if let bookmarkData = file.bookmarkData {
+                print("🔍 Bookmark data size: \(bookmarkData.count) bytes")
+            }
+            
+            // If we have bookmark data, resolve it
+            if let bookmarkData = file.bookmarkData {
+                do {
+                    var isStale = false
+                    let url = try URL(
+                        resolvingBookmarkData: bookmarkData,
+                        options: .withSecurityScope,
+                        relativeTo: nil,
+                        bookmarkDataIsStale: &isStale
+                    )
+                    print("🔍 Resolved from bookmark: \(url.path)")
+                    print("🔍 Bookmark is stale: \(isStale)")
+                    return url
+                } catch {
+                    print("⚠️ Bookmark resolution failed: \(error.localizedDescription)")
+                    // Fall through to try original URL
+                }
+            } else {
+                print("⚠️ No bookmark data available")
+            }
+            
+            // For stored files or if bookmark fails, use original URL
+            print("🔍 Using original URL: \(file.url.path)")
+            return file.url
         }
         
         deinit {
             // Clean up security-scoped access
-            if isAccessingSecurityScope, let url = previewURL {
+            if isAccessingSecurityScope, let url = resolvedURL {
                 url.stopAccessingSecurityScopedResource()
             }
         }
@@ -850,11 +925,11 @@ struct QuickLookPreview: NSViewRepresentable {
         // MARK: - QLPreviewPanelDataSource
         
         func numberOfPreviewItems(in panel: QLPreviewPanel!) -> Int {
-            return previewURL != nil ? 1 : 0
+            return resolvedURL != nil ? 1 : 0
         }
         
         func previewPanel(_ panel: QLPreviewPanel!, previewItemAt index: Int) -> QLPreviewItem! {
-            return previewURL as QLPreviewItem?
+            return resolvedURL as QLPreviewItem?
         }
         
         // MARK: - QLPreviewPanelDelegate
@@ -866,121 +941,5 @@ struct QuickLookPreview: NSViewRepresentable {
         func previewPanel(_ panel: QLPreviewPanel!, sourceFrameOnScreenFor item: QLPreviewItem!) -> NSRect {
             return .zero
         }
-    }
-}
-
-// MARK: - Thumbnail Generator
-
-actor ThumbnailTaskCoordinator {
-    private var activeTasks = 0
-    private let maxConcurrentTasks = 8
-    
-    func acquireSlot() async {
-        while activeTasks >= maxConcurrentTasks {
-            try? await Task.sleep(for: .milliseconds(50))
-        }
-        activeTasks += 1
-    }
-    
-    func releaseSlot() {
-        activeTasks -= 1
-    }
-}
-
-class FileThumbnailGenerator {
-    private static let coordinator = ThumbnailTaskCoordinator()
-    
-    // Async version with concurrency limiting
-    static func generateThumbnailAsync(for url: URL, size: CGSize) async -> NSImage? {
-        // Acquire a slot (wait if too many tasks are active)
-        await coordinator.acquireSlot()
-        
-        defer {
-            Task {
-                await coordinator.releaseSlot()
-            }
-        }
-        
-        // Start accessing security-scoped resource for referenced files
-        let isAccessing = url.startAccessingSecurityScopedResource()
-        defer {
-            if isAccessing {
-                url.stopAccessingSecurityScopedResource()
-            }
-        }
-        
-        // Strategy: Use fast workspace icon for most files, only generate thumbnails for images
-        // This is what Finder does - workspace icons are instant and look great
-        
-        let imageExtensions = ["jpg", "jpeg", "png", "gif", "bmp", "tiff", "heic", "webp"]
-        
-        // For images, try QuickLook thumbnail (fast for images)
-        if imageExtensions.contains(url.pathExtension.lowercased()) {
-            if let quickLookThumbnail = await generateQuickLookThumbnailAsync(for: url, size: size) {
-                return quickLookThumbnail
-            }
-        }
-        
-        // For everything else (and image fallback), use workspace icon - instant!
-        // This includes PDFs, videos, documents, etc. - their file type icons look professional
-        return NSWorkspace.shared.icon(forFile: url.path)
-    }
-    
-    static func generateQuickLookThumbnailAsync(for url: URL, size: CGSize) async -> NSImage? {
-        if #available(macOS 10.15, *) {
-            let scale = NSScreen.main?.backingScaleFactor ?? 2.0
-            
-            // Use icon mode for faster generation - perfect for file managers
-            let request = QLThumbnailGenerator.Request(
-                fileAt: url,
-                size: size,
-                scale: scale,
-                representationTypes: .icon  // Changed from .thumbnail - much faster!
-            )
-            
-            return await withCheckedContinuation { continuation in
-                QLThumbnailGenerator.shared.generateRepresentations(for: request) { representation, type, error in
-                    if let error = error {
-                        print("⚠️ Thumbnail generation failed: \(error.localizedDescription)")
-                    }
-                    continuation.resume(returning: representation?.nsImage)
-                }
-            }
-        }
-        return nil
-    }
-    
-    // DEPRECATED: Use generateThumbnailAsync instead
-    // This synchronous version uses DispatchSemaphore which can cause priority inversion
-    @available(*, deprecated, message: "Use generateThumbnailAsync instead to avoid thread blocking")
-    static func generateThumbnail(for url: URL, size: CGSize) -> NSImage? {
-        // Return workspace icon as fallback - avoid expensive operations
-        return NSWorkspace.shared.icon(forFile: url.path)
-    }
-    
-    // DEPRECATED: Use generateQuickLookThumbnailAsync instead
-    @available(*, deprecated, message: "Use generateQuickLookThumbnailAsync instead to avoid priority inversion")
-    static func generateQuickLookThumbnail(for url: URL, size: CGSize) -> NSImage? {
-        return nil // Deprecated - use async version
-    }
-    
-    static func generateImageThumbnail(for url: URL, size: CGSize) -> NSImage? {
-        guard let image = NSImage(contentsOf: url) else {
-            return nil
-        }
-        
-        let thumbnail = NSImage(size: size)
-        thumbnail.lockFocus()
-        
-        let imageRect = NSRect(origin: .zero, size: image.size)
-        let thumbnailRect = NSRect(origin: .zero, size: size)
-        
-        image.draw(in: thumbnailRect,
-                   from: imageRect,
-                   operation: .copy,
-                   fraction: 1.0)
-        
-        thumbnail.unlockFocus()
-        return thumbnail
     }
 }

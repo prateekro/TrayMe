@@ -6,10 +6,12 @@
 import SwiftUI
 import AppKit
 import Combine
+import CryptoKit
 
 class FilesManager: ObservableObject {
     @Published var files: [FileItem] = []
     @Published var searchText: String = ""
+    @Published var isLoading: Bool = false
     @AppStorage("shouldCopyFiles") var shouldCopyFiles: Bool = false
     @AppStorage("maxFiles") private var storedMaxFiles: Int = 50
     
@@ -19,7 +21,70 @@ class FilesManager: ObservableObject {
         set { storedMaxFiles = min(newValue, 100) }
     }
     
-    private var thumbnailCache: [UUID: NSImage] = [:]
+    // Fast thumbnail cache directory - uses Caches (cleaned by system when needed)
+    private static let thumbnailCacheDir: URL = {
+        let appSupport = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+        let cacheDir = appSupport.appendingPathComponent("TrayMe/Thumbnails")
+        try? FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
+        return cacheDir
+    }()
+    
+    // Fast bookmark cache directory - separate from JSON for speed
+    private static let bookmarkCacheDir: URL = {
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let cacheDir = appSupport.appendingPathComponent("TrayMe/Bookmarks")
+        try? FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
+        return cacheDir
+    }()
+    
+    // Generate cache key from file ID (fast, unique)
+    static func bookmarkCacheKey(for fileID: UUID) -> String {
+        return fileID.uuidString + ".bookmark"
+    }
+    
+    // Save bookmark to separate file (much faster than JSON)
+    static func saveBookmark(_ data: Data, for fileID: UUID) {
+        let cacheFile = bookmarkCacheDir.appendingPathComponent(bookmarkCacheKey(for: fileID))
+        try? data.write(to: cacheFile, options: .atomic)
+    }
+    
+    // Load bookmark from cache
+    static func loadBookmark(for fileID: UUID) -> Data? {
+        let cacheFile = bookmarkCacheDir.appendingPathComponent(bookmarkCacheKey(for: fileID))
+        return try? Data(contentsOf: cacheFile)
+    }
+    
+    // Delete bookmark from cache
+    static func deleteBookmark(for fileID: UUID) {
+        let cacheFile = bookmarkCacheDir.appendingPathComponent(bookmarkCacheKey(for: fileID))
+        try? FileManager.default.removeItem(at: cacheFile)
+    }
+    
+    // Generate cache key from file URL (hash for short, filesystem-safe names)
+    static func thumbnailCacheKey(for fileURL: URL) -> String {
+        let path = fileURL.standardizedFileURL.path
+        let hash = SHA256.hash(data: Data(path.utf8))
+        return hash.compactMap { String(format: "%02x", $0) }.joined().prefix(32) + ".png"
+    }
+    
+    // Get cached thumbnail (super fast - just file read)
+    static func getCachedThumbnail(for fileURL: URL) -> NSImage? {
+        let cacheFile = thumbnailCacheDir.appendingPathComponent(thumbnailCacheKey(for: fileURL))
+        return NSImage(contentsOf: cacheFile)
+    }
+    
+    // Save thumbnail to cache (PNG is fast and small)
+    static func cacheThumbnail(_ image: NSImage, for fileURL: URL) {
+        guard let tiffData = image.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiffData),
+              let pngData = bitmap.representation(using: .png, properties: [:]) else {
+            return
+        }
+        
+        let cacheFile = thumbnailCacheDir.appendingPathComponent(thumbnailCacheKey(for: fileURL))
+        try? pngData.write(to: cacheFile, options: .atomic)
+    }
+    
     private var storageFolderURL: URL? {
         guard let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
             print("❌ Failed to locate Application Support directory")
@@ -38,7 +103,45 @@ class FilesManager: ObservableObject {
     }
     
     init() {
+        let startTime = CFAbsoluteTimeGetCurrent()
+        print("🔍 FilesManager init started")
+        
+        // Load files synchronously - it's fast (just JSON parsing, no validation)
+        // Async added unnecessary overhead and caused UI delays
         loadFromDisk()
+        
+        let timeElapsed = CFAbsoluteTimeGetCurrent() - startTime
+        print("⏱️ FilesManager init took \(String(format: "%.3f", timeElapsed))s")
+    }
+    
+    private func loadFromDisk() {
+        let startTime = CFAbsoluteTimeGetCurrent()
+        
+        guard FileManager.default.fileExists(atPath: saveURL.path) else {
+            print("📁 No saved files to load")
+            return 
+        }
+        
+        // Load in background to avoid blocking app launch
+        DispatchQueue.global(qos: .userInitiated).async {
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            
+            guard let data = try? Data(contentsOf: self.saveURL),
+                  let decoded = try? decoder.decode([FileItem].self, from: data) else {
+                print("❌ Failed to load/decode files")
+                return
+            }
+            
+            let loadTime = CFAbsoluteTimeGetCurrent() - startTime
+            
+            DispatchQueue.main.async {
+                self.files = decoded
+                print("📁 Loaded \(decoded.count) files in \(String(format: "%.3f", loadTime))s")
+            }
+        }
+        
+        print("📁 Starting background load...")
     }
 
     func addFile(url: URL) {
@@ -138,12 +241,51 @@ class FilesManager: ObservableObject {
     }
     
     func addFiles(urls: [URL]) {
-        // Filter out duplicates and files that already exist
+        print("📥 addFiles called with \(urls.count) URLs")
+        print("📥 Copy mode: \(shouldCopyFiles ? "COPY" : "REFERENCE")")
+        
+        // Smart duplicate filtering:
+        // - Block if same file already exists in same mode (reference or stored)
+        // - Allow if switching modes (reference -> copy or copy -> reference)
         let newURLs = urls.filter { url in
-            !files.contains(where: { $0.url == url })
+            let standardizedURL = url.standardizedFileURL
+            
+            // Check if we already have this file in the SAME mode
+            let hasDuplicate = files.contains { existingFile in
+                let existingStandardized = existingFile.url.standardizedFileURL
+                
+                guard let storageFolder = storageFolderURL else { return false }
+                
+                let isExistingStored = isFileInStorage(existingFile.url, storageFolder: storageFolder)
+                let willBeStored = shouldCopyFiles
+                
+                // Same file, same mode = duplicate
+                if existingStandardized.path == standardizedURL.path && isExistingStored == willBeStored {
+                    return true
+                }
+                
+                // If modes match, check by name (handles stored copies from same source)
+                if isExistingStored == willBeStored && existingFile.name == url.lastPathComponent {
+                    return true
+                }
+                
+                return false
+            }
+            
+            if hasDuplicate {
+                print("⏭️ Skipping duplicate: \(url.lastPathComponent) (already exists in same mode)")
+            } else {
+                print("✅ Will add: \(url.lastPathComponent)")
+            }
+            return !hasDuplicate
         }
         
-        guard !newURLs.isEmpty else { return }
+        print("📥 After filtering: \(newURLs.count) new files to add")
+        
+        guard !newURLs.isEmpty else {
+            print("⚠️ No new files to add (all were duplicates)")
+            return
+        }
         
         // Process files in batch
         var newFiles: [FileItem] = []
@@ -162,7 +304,22 @@ class FilesManager: ObservableObject {
                 finalURL = url
             }
             
-            newFiles.append(FileItem(url: finalURL))
+            var newFile = FileItem(url: finalURL)
+            
+            // CRITICAL: Populate bookmarks immediately for reference files
+            // Store bookmarks separately from JSON for fast loading
+            if !shouldCopyFiles {
+                newFile.populateMetadata()
+                
+                // Save bookmark to separate cache file (not in JSON!)
+                if let bookmarkData = newFile.bookmarkData {
+                    FilesManager.saveBookmark(bookmarkData, for: newFile.id)
+                    print("📑 Saved bookmark to cache for: \(newFile.name)")
+                }
+            }
+            // For stored files, we don't need bookmarks (they're in our app sandbox)
+            
+            newFiles.append(newFile)
         }
         
         // Add all new files at once and save only once
@@ -173,9 +330,6 @@ class FilesManager: ObservableObject {
             // This ensures we don't lose existing files
             
             self.saveToDisk()
-            
-            // DON'T populate metadata on add - do it lazily when files are viewed
-            // This prevents the app from freezing when adding many files
         }
     }
     
@@ -189,8 +343,10 @@ class FilesManager: ObservableObject {
             }
         }
         
+        // Delete bookmark cache if exists
+        FilesManager.deleteBookmark(for: file.id)
+        
         files.removeAll { $0.id == file.id }
-        thumbnailCache.removeValue(forKey: file.id)
         saveToDisk()
     }
     
@@ -206,23 +362,31 @@ class FilesManager: ObservableObject {
             }
         }
         
+        // Delete all bookmark caches
+        for file in files {
+            FilesManager.deleteBookmark(for: file.id)
+        }
+        
         files.removeAll()
-        thumbnailCache.removeAll()
         saveToDisk()
     }
     
     func clearAllReferences() {
         // Remove only referenced files (not stored in app)
         guard let storageFolder = storageFolderURL else {
+            // Delete all bookmark caches
+            for file in files {
+                FilesManager.deleteBookmark(for: file.id)
+            }
             files.removeAll()
-            thumbnailCache.removeAll()
             saveToDisk()
             return
         }
         
+        // Delete bookmarks for reference files
         let referencedFiles = files.filter { !isFileInStorage($0.url, storageFolder: storageFolder) }
         for file in referencedFiles {
-            thumbnailCache.removeValue(forKey: file.id)
+            FilesManager.deleteBookmark(for: file.id)
         }
         
         files.removeAll { !isFileInStorage($0.url, storageFolder: storageFolder) }
@@ -238,7 +402,6 @@ class FilesManager: ObservableObject {
         for file in storedFiles {
             do {
                 try FileManager.default.removeItem(at: file.url)
-                thumbnailCache.removeValue(forKey: file.id)
             } catch {
                 print("⚠️ Failed to delete stored file: \(error.localizedDescription)")
             }
@@ -299,45 +462,12 @@ class FilesManager: ObservableObject {
         return [file.url]
     }
     
-    func getCachedThumbnail(for fileID: UUID) -> NSImage? {
-        return thumbnailCache[fileID]
-    }
-    
-    func cacheThumbnail(_ image: NSImage, for fileID: UUID) {
-        thumbnailCache[fileID] = image
-    }
-    
-    func updateFileThumbnail(_ fileID: UUID, thumbnail: NSImage) {
-        if let index = files.firstIndex(where: { $0.id == fileID }) {
-            var updatedFile = files[index]
-            updatedFile.thumbnailData = thumbnail.tiffRepresentation
-            files[index] = updatedFile
-            cacheThumbnail(thumbnail, for: fileID)
-            saveToDisk()
-        }
-    }
-    
     func openStorageFolder() {
         guard let storageFolder = storageFolderURL else {
             print("❌ Storage folder not available")
             return
         }
         NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: storageFolder.path)
-    }
-    
-    func refreshAllThumbnails() {
-        // Clear all cached thumbnails to force regeneration
-        thumbnailCache.removeAll()
-        
-        // Clear thumbnail data from file items
-        for index in files.indices {
-            files[index].thumbnailData = nil
-        }
-        
-        saveToDisk()
-        
-        // Trigger view refresh by publishing changes
-        objectWillChange.send()
     }
     
     // MARK: - Persistence
@@ -355,19 +485,6 @@ class FilesManager: ObservableObject {
         
         if let data = try? encoder.encode(files) {
             try? data.write(to: saveURL)
-        }
-    }
-    
-    func loadFromDisk() {
-        guard FileManager.default.fileExists(atPath: saveURL.path) else { return }
-        
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        
-        if let data = try? Data(contentsOf: saveURL),
-           let decoded = try? decoder.decode([FileItem].self, from: data) {
-            // Filter out files that no longer exist
-            self.files = decoded.filter { FileManager.default.fileExists(atPath: $0.url.path) }
         }
     }
 }
