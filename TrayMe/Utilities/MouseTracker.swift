@@ -97,9 +97,9 @@ class MouseTracker {
         let delta = event.scrollingDeltaY
         
         // Log all scroll events for debugging
-        if abs(delta) > 0.5 {
-            print("📜 Scroll: \(String(format: "%.1f", delta)) | At top: \(mouseAtTop)")
-        }
+        // if abs(delta) > 0.5 {
+        //     print("📜 Scroll: \(String(format: "%.1f", delta)) | At top: \(mouseAtTop)")
+        // }
         
         // Only accumulate when mouse is at top
         guard mouseAtTop else {

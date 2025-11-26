@@ -43,11 +43,9 @@ class FilesManager: ObservableObject {
         
         // Copy file if setting is enabled, otherwise just reference
         let finalURL: URL
-        let didCopy: Bool
         if shouldCopyFiles {
             if let copiedURL = copyFileToStorage(url) {
                 finalURL = copiedURL
-                didCopy = true
             } else {
                 // Copy failed - show error and use reference instead
                 print("⚠️ Failed to copy file \(url.lastPathComponent), using reference instead")
@@ -55,14 +53,12 @@ class FilesManager: ObservableObject {
                     // TODO: Show user-facing error notification
                 }
                 finalURL = url
-                didCopy = false
             }
         } else {
             finalURL = url
-            didCopy = false
         }
         
-        var newFile = FileItem(url: finalURL)
+        let newFile = FileItem(url: finalURL)
         
         DispatchQueue.main.async {
             self.files.insert(newFile, at: 0)
@@ -85,7 +81,7 @@ class FilesManager: ObservableObject {
         var file = files[index]
         
         // Run metadata population in background
-        await Task.detached {
+        _ = await Task.detached {
             file.populateMetadata()
             
             // Update back on main actor

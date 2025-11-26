@@ -438,7 +438,9 @@ struct FileCard: View {
         }
         
         Task {
-            let thumb = await FileThumbnailGenerator.generateThumbnailAsync(for: file.url, size: CGSize(width: 160, height: 120))
+            // Use resolvedURL() to handle security-scoped bookmarks for referenced files
+            let resolvedURL = file.resolvedURL()
+            let thumb = await FileThumbnailGenerator.generateThumbnailAsync(for: resolvedURL, size: CGSize(width: 160, height: 120))
             await MainActor.run {
                 if let thumb = thumb {
                     self.thumbnail = thumb
@@ -457,8 +459,19 @@ struct FileCard: View {
             return
         }
         
+        // Use resolvedURL() to handle security-scoped bookmarks for referenced files
+        let resolvedURL = file.resolvedURL()
+        
+        // Start accessing security-scoped resource for referenced files
+        let isAccessing = resolvedURL.startAccessingSecurityScopedResource()
+        defer {
+            if isAccessing {
+                resolvedURL.stopAccessingSecurityScopedResource()
+            }
+        }
+        
         // Load the full-resolution image
-        if let fullImage = NSImage(contentsOf: file.url) {
+        if let fullImage = NSImage(contentsOf: resolvedURL) {
             let pasteboard = NSPasteboard.general
             pasteboard.clearContents()
             pasteboard.writeObjects([fullImage])
@@ -554,6 +567,14 @@ struct QuickLookPreview: NSViewRepresentable {
 class FileThumbnailGenerator {
     // Async version without semaphore - avoids priority inversion
     static func generateThumbnailAsync(for url: URL, size: CGSize) async -> NSImage? {
+        // Start accessing security-scoped resource for referenced files
+        let isAccessing = url.startAccessingSecurityScopedResource()
+        defer {
+            if isAccessing {
+                url.stopAccessingSecurityScopedResource()
+            }
+        }
+        
         // Try QuickLook thumbnail first
         if let quickLookThumbnail = await generateQuickLookThumbnailAsync(for: url, size: size) {
             return quickLookThumbnail
@@ -571,7 +592,7 @@ class FileThumbnailGenerator {
     
     static func generateQuickLookThumbnailAsync(for url: URL, size: CGSize) async -> NSImage? {
         if #available(macOS 10.15, *) {
-            let scale = await NSScreen.main?.backingScaleFactor ?? 2.0
+            let scale = NSScreen.main?.backingScaleFactor ?? 2.0
             let request = QLThumbnailGenerator.Request(
                 fileAt: url,
                 size: size,

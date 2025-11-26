@@ -52,7 +52,7 @@ struct FileItem: Identifiable, Codable {
     }
     
     // Helper to populate icon and bookmark data asynchronously
-    mutating func populateMetadata() {
+    nonisolated mutating func populateMetadata() {
         // Get file icon
         let icon = NSWorkspace.shared.icon(forFile: url.path)
         self.iconData = icon.tiffRepresentation
