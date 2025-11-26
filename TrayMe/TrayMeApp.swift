@@ -36,23 +36,26 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     let appSettings = AppSettings()
     
     func applicationDidFinishLaunching(_ notification: Notification) {
+        let appStartTime = CFAbsoluteTimeGetCurrent()
         print("🚀 TrayMe starting...")
         
         // Hide dock icon for menu bar app behavior
         NSApp.setActivationPolicy(.accessory)
         
         // Create status bar item
+        let statusBarTime = CFAbsoluteTimeGetCurrent()
         setupStatusBar()
-        print("✅ Status bar created")
+        print("✅ Status bar created (\(String(format: "%.3f", CFAbsoluteTimeGetCurrent() - statusBarTime))s)")
         
         // Create main panel with shared managers
+        let panelStartTime = CFAbsoluteTimeGetCurrent()
         mainPanel = MainPanel(
             clipboardManager: clipboardManager,
             filesManager: filesManager,
             notesManager: notesManager,
             appSettings: appSettings
         )
-        print("✅ Main panel created")
+        print("✅ Main panel created (\(String(format: "%.3f", CFAbsoluteTimeGetCurrent() - panelStartTime))s)")
         
         // Setup global hotkey first
         setupHotkey()
@@ -82,7 +85,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
         )
         
-        print("✅ TrayMe ready!")
+        print("✅ TrayMe ready! (Total: \(String(format: "%.3f", CFAbsoluteTimeGetCurrent() - appStartTime))s)")
     }
     
     func setupStatusBar() {

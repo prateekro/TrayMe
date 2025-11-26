@@ -201,6 +201,13 @@ struct NotesView: View {
                 manager.updateNote(currentNote, title: noteTitle, content: noteContent)
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .focusNotes)) { _ in
+            print("📝 FocusNotes notification received!")
+            // Focus editor when panel shows (unless dragging files)
+            // No delay needed - animation is already complete when this fires
+            isEditorFocused = true
+            print("📝 Set isEditorFocused = true")
+        }
     }
     
     func selectNote(_ note: Note) {
