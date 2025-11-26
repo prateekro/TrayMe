@@ -289,6 +289,8 @@ struct ClipboardDetailView: View {
     let onSave: () -> Void
     let onContentChange: () -> Void
     
+    @State private var showingImageEditor = false
+    
     var body: some View {
         VStack(spacing: 0) {
             // Header
@@ -297,6 +299,14 @@ struct ClipboardDetailView: View {
                     .font(.system(size: 14, weight: .semibold))
                 
                 Spacer()
+                
+                if item.type == .image {
+                    Button("Edit Image") {
+                        showingImageEditor = true
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
                 
                 Button(action: onClose) {
                     Image(systemName: "xmark.circle.fill")
@@ -368,7 +378,13 @@ struct ClipboardDetailView: View {
                 .buttonStyle(.plain)
             }
             .padding()
-            .background(Color(NSColor.windowBackgroundColor).opacity(0.5))
+            .background(Color(NSColor.controlBackgroundColor))
+        }
+        .sheet(isPresented: $showingImageEditor) {
+            ImageEditorView(item: item, onClose: {
+                showingImageEditor = false
+            })
+            .environmentObject(manager)
         }
     }
 }
