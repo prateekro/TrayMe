@@ -269,7 +269,158 @@ print("📁 Loaded \(files.count) files in \(CFAbsoluteTimeGetCurrent() - startT
 
 ---
 
-## 🎯 Performance Goals
+## �️ Code Quality & Maintainability
+
+### Recent Improvements (November 2025)
+
+#### 1. Collision Handling Safety
+**Fixed:** Infinite loop risk in file storage
+```swift
+// Added max retry limit to prevent infinite loops
+private func copyFileToStorage(_ sourceURL: URL) -> URL? {
+    let maxRetries = 1000
+    var counter = 1
+    
+    while FileManager.default.fileExists(atPath: finalURL.path) && counter < maxRetries {
+        // Generate unique filename
+        counter += 1
+    }
+    
+    if counter >= maxRetries {
+        return nil // Safety exit
+    }
+    // ...
+}
+```
+
+#### 2. Safe Directory Access
+**Fixed:** Force unwrapping of system directories
+```swift
+// Before: Force unwrap (crash risk)
+let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+
+// After: Optional with graceful fallback
+private static let thumbnailCacheDir: URL? = {
+    guard let appSupport = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else {
+        print("❌ Could not access Caches directory")
+        return nil
+    }
+    // ...
+    return cacheDir
+}()
+```
+
+#### 3. Notification Name Constants
+**Fixed:** String literal typos risk
+```swift
+// Created centralized constants file
+extension Notification.Name {
+    static let mainPanelWillHide = Notification.Name("MainPanelWillHide")
+    static let focusNotes = Notification.Name("FocusNotes")
+}
+
+// Usage - compile-time safety
+NotificationCenter.default.post(name: .focusNotes, object: nil)
+```
+
+#### 4. Keyboard Key Code Constants
+**Fixed:** Magic numbers for better readability
+```swift
+private enum KeyCode {
+    static let space: UInt16 = 49
+    static let leftArrow: UInt16 = 123
+    static let rightArrow: UInt16 = 124
+    static let downArrow: UInt16 = 125
+    static let upArrow: UInt16 = 126
+}
+
+// Usage
+if event.keyCode == KeyCode.space { /* ... */ }
+```
+
+#### 5. DRY Principle - Image Extensions
+**Fixed:** Duplicated array definitions (3 instances → 1)
+```swift
+// Single source of truth
+fileprivate static let imageExtensions = ["jpg", "jpeg", "png", "gif", "bmp", "tiff", "heic", "webp"]
+
+// Reused across FileCard methods
+if FilesView.imageExtensions.contains(file.fileType.lowercased()) {
+    // Generate thumbnail
+}
+```
+
+#### 6. Modern Image Processing
+**Fixed:** Deprecated `lockFocus()/unlockFocus()` API
+```swift
+// Old: Deprecated and not thread-safe
+thumbnail.lockFocus()
+image.draw(in: rect, from: imageRect, operation: .copy, fraction: 1.0)
+thumbnail.unlockFocus()
+
+// New: Modern NSGraphicsContext API (thread-safe)
+let bitmapRep = NSBitmapImageRep(...)
+NSGraphicsContext.saveGraphicsState()
+NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmapRep)
+image.draw(in: rect, from: imageRect, operation: .copy, fraction: 1.0)
+NSGraphicsContext.restoreGraphicsState()
+thumbnail.addRepresentation(bitmapRep)
+```
+
+#### 7. Optimized Metadata Population
+**Removed:** Unnecessary icon data generation
+```swift
+// Before: Generated and stored icon data (never persisted)
+func populateMetadata() {
+    let icon = NSWorkspace.shared.icon(forFile: url.path)
+    self.iconData = icon.tiffRepresentation  // Wasted memory ❌
+    // ... create bookmark
+}
+
+// After: Only create bookmarks (icons generated on-demand)
+func populateMetadata() {
+    // Create security-scoped bookmark only
+    self.bookmarkData = try url.bookmarkData(...)
+}
+```
+
+#### 8. Smart Bookmark Creation
+**Already Optimized:** Only for referenced files, not stored files
+```swift
+// Bookmarks only created when !shouldCopyFiles
+if !shouldCopyFiles {
+    DispatchQueue.global(qos: .utility).async {
+        for var file in newFiles {
+            file.populateMetadata()  // Creates bookmark
+            FilesManager.saveBookmark(bookmarkData, for: file.id)
+        }
+    }
+}
+// Stored files don't need bookmarks - app owns them
+```
+
+#### 9. Duplicate Detection Safety
+**Fixed:** Nil handling for storage folder
+```swift
+// Before: Returned false (allowed duplicates when storage unavailable)
+guard let storageFolder = storageFolderURL else { return false }
+
+// After: Returns true (prevents duplicates when storage unavailable)
+guard let storageFolder = storageFolderURL else { return true }
+```
+
+### Code Quality Metrics
+- ✅ Zero force unwraps in critical paths
+- ✅ Consistent error handling with fallbacks
+- ✅ Named constants for all magic values
+- ✅ DRY principle applied (no duplicate code)
+- ✅ Modern APIs (no deprecated methods)
+- ✅ Thread-safe operations
+- ✅ Memory-efficient (no unnecessary data retention)
+
+---
+
+## �🎯 Performance Goals
 
 | Metric | Target | Current | Status |
 |--------|--------|---------|--------|

@@ -685,6 +685,73 @@ CRITICAL DETAILS:
 - updateItemContent() preserves ID and timestamp when editing
 ```
 
+### Challenge 15: Quick Look Not Working After App Restart
+**Problem**: Quick Look worked on first file add, but failed after app restart
+
+**Root Cause**: Security-scoped bookmarks not being persisted
+
+**Solution**: Separate bookmark cache system
+- Store bookmarks in `~/Library/Application Support/TrayMe/Bookmarks/`
+- Named by FileItem UUID for O(1) lookup
+- Load bookmark and start accessing security-scoped resource before Quick Look
+
+### Challenge 16: Missing File Detection
+**Problem**: No visual feedback when referenced files are moved or deleted
+
+**Solution**: Background file existence checks
+- `fileExists()` method checks bookmark resolution
+- Visual feedback: dimmed icon, red badge, "Missing" warning
+- Manual refresh via "Refresh File Status" menu (Cmd+R)
+- UUID-based refresh trigger forces re-render
+
+### Challenge 17: Window Focus UX
+**Problem**: File selection visible when window not focused (confusing)
+
+**Solution**: Native focus state management
+```swift
+@Environment(\.controlActiveState) private var controlActiveState
+
+// Only show selection when window is key
+.fill(isSelected && controlActiveState == .key 
+    ? Color.accentColor.opacity(0.2) : Color.clear)
+
+// Clear selection when window loses focus
+.onChange(of: controlActiveState) { _, newValue in
+    if newValue != .key { selectedFile = nil }
+}
+```
+
+### Challenge 18: Notes Auto-Focus Delay
+**Problem**: 0.6s delay before notes received focus (0.3s animation + 0.3s delay)
+
+**Solution**: Remove redundant delay - focus immediately after animation completes
+
+---
+
+## Code Quality & Best Practices
+
+### Recent Code Quality Improvements (November 2025)
+
+#### Safety Improvements
+1. **Infinite Loop Prevention**: Max 1000 retries in file collision handling
+2. **Safe Directory Access**: No force unwrapping of system directories
+3. **Nil Handling**: Proper fallbacks when storage unavailable
+4. **Thread Safety**: Modern NSGraphicsContext instead of deprecated lockFocus
+
+#### Maintainability Improvements
+1. **Notification Constants**: Centralized in `NotificationNames.swift`
+2. **Keyboard Key Constants**: Named enum instead of magic numbers
+3. **DRY Principle**: Single `imageExtensions` array (was duplicated 3 times)
+4. **Memory Optimization**: Removed unnecessary icon data generation
+
+#### Architecture Improvements
+1. **Optimized Bookmark Creation**: Only for referenced files, not stored files
+2. **Smart Duplicate Detection**: Returns safe default when storage unavailable
+3. **Modern APIs**: NSGraphicsContext for thread-safe image processing
+4. **Async Comment Accuracy**: Updated to reflect actual implementation
+
+---
+
 ## Conclusion
 
 TrayMe successfully replicates core Unclutter functionality using modern SwiftUI with strategic AppKit integration. The key to success was understanding NSPanel behavior, implementing proper auto-save patterns, and solving mouse interaction challenges without requiring Accessibility permissions. The side-by-side edit panel proved more stable than dynamic view replacement approaches.

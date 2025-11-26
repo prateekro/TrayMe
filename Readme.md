@@ -28,21 +28,26 @@ Built with native Apple technologies for maximum performance and minimal resourc
 - ✅ Drag & drop files from Desktop/Finder
 - ✅ Drag files out to other apps
 - ✅ **Quick Look preview** with spacebar (native macOS preview)
-- ✅ **Arrow key navigation** in Quick Look
+- ✅ **Arrow key navigation** in Quick Look (←/→/↑/↓)
+- ✅ **Click to switch preview** while Quick Look is open
 - ✅ **Native Finder-style thumbnails** for images
 - ✅ **Instant workspace icons** for all file types
 - ✅ **Copy files** to storage or **reference** originals
 - ✅ Visual badges (Green "Stored" vs Orange "Ref")
+- ✅ **Missing file detection** with visual warnings (red badge)
+- ✅ **Refresh file status** on-demand (Cmd+R)
 - ✅ Quick open or reveal in Finder
 - ✅ Copy image to clipboard
 - ✅ **Security-scoped bookmarks** for persistent access (survives app restart)
 - ✅ **File limit enforcement** (up to 100 files)
 - ✅ **Smart duplicate detection** (allows same file as reference & copy)
+- ✅ **Focus management** - no selection indicators when window unfocused
 - ✅ Temporary storage without Desktop clutter
 - ✅ **Blazing fast performance** - optimized for 100+ files
 
 ### Quick Notes
 - ✅ Instant note creation
+- ✅ **Auto-focus on panel open** for immediate typing
 - ✅ Auto-save functionality
 - ✅ Full-text search
 - ✅ Pin important notes
