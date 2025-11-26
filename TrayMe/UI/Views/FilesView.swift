@@ -535,33 +535,40 @@ struct FileCard: View {
     @State private var isCopiedFile: Bool = false
     @Binding var showCopiedFeedback: Bool
     
+    // Computed property for instant icon - no async needed!
+    private var displayIcon: NSImage {
+        // Priority: cached thumbnail > generated thumbnail > workspace icon
+        if let thumb = thumbnail {
+            return thumb
+        }
+        if let cached = file.thumbnail {
+            return cached
+        }
+        if let resolvedURL = file.resolvedURL() {
+            // Instant workspace icon - no async needed
+            return NSWorkspace.shared.icon(forFile: resolvedURL.path)
+        }
+        // Fallback to file type icon
+        if let icon = file.icon {
+            return icon
+        }
+        // Ultimate fallback - use modern API
+        if let contentType = UTType(filenameExtension: file.fileType) {
+            return NSWorkspace.shared.icon(for: contentType)
+        }
+        // Generic document icon if all else fails
+        return NSWorkspace.shared.icon(for: .data)
+    }
+    
     var body: some View {
         VStack(spacing: 8) {
             // File thumbnail/icon with badge
             ZStack(alignment: .topTrailing) {
-                if let thumb = thumbnail {
-                    Image(nsImage: thumb)
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                        .frame(width: 80, height: 60)
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
-                } else if let cachedThumb = file.thumbnail {
-                    // Use cached thumbnail from FileItem
-                    Image(nsImage: cachedThumb)
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                        .frame(width: 80, height: 60)
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
-                } else if let icon = file.icon {
-                    Image(nsImage: icon)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 48, height: 48)
-                } else {
-                    Image(systemName: "doc")
-                        .font(.system(size: 48))
-                        .foregroundColor(.secondary)
-                }
+                Image(nsImage: displayIcon)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: 80, height: 60)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
                 
                 // Storage type badge
                 if isCopiedFile {
@@ -673,7 +680,9 @@ struct FileCard: View {
                 let storageStandardized = storageFolder.standardizedFileURL.path
                 isCopiedFile = fileStandardized.hasPrefix(storageStandardized)
             }
-            loadThumbnail()
+            // Only load enhanced thumbnails for images in background (optional enhancement)
+            // Everything else already has instant workspace icon from displayIcon
+            loadThumbnailIfImage()
         }
         .contextMenu {
             Text(isCopiedFile ? "📦 Stored File" : "🔗 Referenced File")
@@ -703,7 +712,13 @@ struct FileCard: View {
         }
     }
     
-    func loadThumbnail() {
+    func loadThumbnailIfImage() {
+        // Only load enhanced thumbnails for images
+        let imageExtensions = ["jpg", "jpeg", "png", "gif", "bmp", "tiff", "heic", "webp"]
+        guard imageExtensions.contains(file.fileType.lowercased()) else {
+            return // Non-images already have great workspace icons
+        }
+        
         // First check if we already have a cached thumbnail
         if file.thumbnail != nil {
             return // Already have persisted thumbnail
