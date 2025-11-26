@@ -118,7 +118,7 @@ struct FilesView: View {
                 
                 Spacer()
                 
-                Toggle("Copy Files", isOn: $manager.shouldCopyFiles)
+                Toggle("Copy files", isOn: $manager.shouldCopyFiles)
                     .toggleStyle(.checkbox)
                     .font(.system(size: 11))
                     .help("Copy files to app storage instead of just referencing them")
@@ -262,17 +262,7 @@ struct FileCard: View {
     let isHovered: Bool
     let isSelected: Bool
     @State private var thumbnail: NSImage?
-    
-    private var isCopiedFile: Bool {
-        // Check if file is in the app's storage folder using standardized paths
-        guard let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
-            return false
-        }
-        let storageFolder = appSupport.appendingPathComponent("TrayMe/StoredFiles")
-        let fileStandardized = file.url.standardizedFileURL.path
-        let storageStandardized = storageFolder.standardizedFileURL.path
-        return fileStandardized.hasPrefix(storageStandardized)
-    }
+    @State private var isCopiedFile: Bool = false
     
     var body: some View {
         VStack(spacing: 8) {
@@ -401,6 +391,13 @@ struct FileCard: View {
             NSItemProvider(object: file.url as NSURL)
         }
         .onAppear {
+            // Compute isCopiedFile once on appear
+            if let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+                let storageFolder = appSupport.appendingPathComponent("TrayMe/StoredFiles")
+                let fileStandardized = file.url.standardizedFileURL.path
+                let storageStandardized = storageFolder.standardizedFileURL.path
+                isCopiedFile = fileStandardized.hasPrefix(storageStandardized)
+            }
             loadThumbnail()
         }
         .contextMenu {
@@ -439,7 +436,10 @@ struct FileCard: View {
         
         Task {
             // Use resolvedURL() to handle security-scoped bookmarks for referenced files
-            let resolvedURL = file.resolvedURL()
+            guard let resolvedURL = file.resolvedURL() else {
+                print("⚠️ Cannot resolve file URL for thumbnail: \(file.name)")
+                return
+            }
             let thumb = await FileThumbnailGenerator.generateThumbnailAsync(for: resolvedURL, size: CGSize(width: 160, height: 120))
             await MainActor.run {
                 if let thumb = thumb {
@@ -460,7 +460,10 @@ struct FileCard: View {
         }
         
         // Use resolvedURL() to handle security-scoped bookmarks for referenced files
-        let resolvedURL = file.resolvedURL()
+        guard let resolvedURL = file.resolvedURL() else {
+            print("❌ Cannot resolve file URL for: \(file.name)")
+            return
+        }
         
         // Start accessing security-scoped resource for referenced files
         let isAccessing = resolvedURL.startAccessingSecurityScopedResource()
@@ -511,16 +514,17 @@ struct QuickLookPreview: NSViewRepresentable {
         var isAccessingSecurityScope = false
         
         func showPreview(for url: URL, in window: NSWindow?) {
-            // Stop accessing previous URL if needed
-            if isAccessingSecurityScope, let previousURL = previewURL {
+            // Clean up previous URL's security scope if it's different
+            if let previousURL = previewURL, previousURL != url, isAccessingSecurityScope {
                 previousURL.stopAccessingSecurityScopedResource()
                 isAccessingSecurityScope = false
             }
             
-            // Start accessing security-scoped resource for referenced files
-            isAccessingSecurityScope = url.startAccessingSecurityScopedResource()
-            
+            // Update to new URL
             self.previewURL = url
+            
+            // Start accessing security-scoped resource for new URL
+            isAccessingSecurityScope = url.startAccessingSecurityScopedResource()
             
             guard let panel = QLPreviewPanel.shared() else { return }
             panel.dataSource = self
@@ -609,51 +613,18 @@ class FileThumbnailGenerator {
         return nil
     }
     
-    // Keep the old sync version for backwards compatibility
+    // DEPRECATED: Use generateThumbnailAsync instead
+    // This synchronous version uses DispatchSemaphore which can cause priority inversion
+    @available(*, deprecated, message: "Use generateThumbnailAsync instead to avoid thread blocking")
     static func generateThumbnail(for url: URL, size: CGSize) -> NSImage? {
-        // Try QuickLook thumbnail first
-        if let quickLookThumbnail = generateQuickLookThumbnail(for: url, size: size) {
-            return quickLookThumbnail
-        }
-        
-        // For images, generate directly
-        let imageExtensions = ["jpg", "jpeg", "png", "gif", "bmp", "tiff", "heic", "webp"]
-        if imageExtensions.contains(url.pathExtension.lowercased()) {
-            return generateImageThumbnail(for: url, size: size)
-        }
-        
-        // Return workspace icon as fallback
+        // Return workspace icon as fallback - avoid expensive operations
         return NSWorkspace.shared.icon(forFile: url.path)
     }
     
+    // DEPRECATED: Use generateQuickLookThumbnailAsync instead
+    @available(*, deprecated, message: "Use generateQuickLookThumbnailAsync instead to avoid priority inversion")
     static func generateQuickLookThumbnail(for url: URL, size: CGSize) -> NSImage? {
-        if #available(macOS 10.15, *) {
-            let scale = NSScreen.main?.backingScaleFactor ?? 2.0
-            let request = QLThumbnailGenerator.Request(
-                fileAt: url,
-                size: size,
-                scale: scale,
-                representationTypes: .thumbnail
-            )
-            
-            let semaphore = DispatchSemaphore(value: 0)
-            var thumbnail: NSImage?
-            
-            QLThumbnailGenerator.shared.generateRepresentations(for: request) { representation, type, error in
-                if let error = error {
-                    print("⚠️ Thumbnail generation error for \(url.lastPathComponent): \(error.localizedDescription)")
-                }
-                if let rep = representation {
-                    thumbnail = rep.nsImage
-                }
-                semaphore.signal()
-            }
-            
-            // Increased timeout to 5 seconds to avoid warnings
-            _ = semaphore.wait(timeout: .now() + 5.0)
-            return thumbnail
-        }
-        return nil
+        return nil // Deprecated - use async version
     }
     
     static func generateImageThumbnail(for url: URL, size: CGSize) -> NSImage? {

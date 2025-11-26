@@ -38,18 +38,8 @@ struct FileItem: Identifiable, Codable {
     }
     
     // Initialize with icon and bookmark data (for loading from disk)
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        id = try container.decode(UUID.self, forKey: .id)
-        url = try container.decode(URL.self, forKey: .url)
-        name = try container.decode(String.self, forKey: .name)
-        fileType = try container.decode(String.self, forKey: .fileType)
-        size = try container.decode(Int64.self, forKey: .size)
-        addedDate = try container.decode(Date.self, forKey: .addedDate)
-        iconData = try container.decodeIfPresent(Data.self, forKey: .iconData)
-        bookmarkData = try container.decodeIfPresent(Data.self, forKey: .bookmarkData)
-        thumbnailData = try container.decodeIfPresent(Data.self, forKey: .thumbnailData)
-    }
+    // Note: Relying on automatic Codable synthesis - custom decoder removed
+    // Swift automatically synthesizes proper decoding for all properties
     
     // Helper to populate icon and bookmark data asynchronously
     nonisolated mutating func populateMetadata() {
@@ -93,7 +83,8 @@ struct FileItem: Identifiable, Codable {
     }
     
     // Helper to resolve URL from bookmark if available
-    func resolvedURL() -> URL {
+    // Returns nil if bookmark resolution fails and fallback URL is invalid
+    func resolvedURL() -> URL? {
         // If we have bookmark data, try to resolve it
         if let bookmarkData = bookmarkData {
             do {
@@ -110,10 +101,20 @@ struct FileItem: Identifiable, Codable {
                 return resolvedURL
             } catch {
                 print("⚠️ Failed to resolve bookmark for \(name): \(error)")
+                // Bookmark failed - check if fallback URL exists
+                if FileManager.default.fileExists(atPath: url.path) {
+                    return url
+                } else {
+                    print("❌ Fallback URL also invalid for \(name)")
+                    return nil
+                }
             }
         }
-        // Fallback to regular URL
-        return url
+        // No bookmark - return URL if file exists
+        if FileManager.default.fileExists(atPath: url.path) {
+            return url
+        }
+        return nil
     }
 }
 
