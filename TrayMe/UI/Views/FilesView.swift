@@ -167,13 +167,13 @@ struct FilesView: View {
                 let currentIndex = manager.filteredFiles.firstIndex { $0.id == selectedFile?.id } ?? 0
                 
                 switch event.keyCode {
-                case 123, 125: // Left arrow or Down arrow - previous file
+                case 123, 126: // Left arrow or Up arrow - previous file
                     if currentIndex > 0 {
                         selectedFile = manager.filteredFiles[currentIndex - 1]
                         quickLookTrigger = true
                         return nil
                     }
-                case 124, 126: // Right arrow or Up arrow - next file
+                case 124, 125: // Right arrow or Down arrow - next file
                     if currentIndex < manager.filteredFiles.count - 1 {
                         selectedFile = manager.filteredFiles[currentIndex + 1]
                         quickLookTrigger = true
@@ -264,10 +264,14 @@ struct FileCard: View {
     @State private var thumbnail: NSImage?
     
     private var isCopiedFile: Bool {
-        // Check if file is in the app's storage folder
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let storagePath = appSupport.appendingPathComponent("TrayMe/StoredFiles").path
-        return file.url.path.starts(with: storagePath)
+        // Check if file is in the app's storage folder using standardized paths
+        guard let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+            return false
+        }
+        let storageFolder = appSupport.appendingPathComponent("TrayMe/StoredFiles")
+        let fileStandardized = file.url.standardizedFileURL.path
+        let storageStandardized = storageFolder.standardizedFileURL.path
+        return fileStandardized.hasPrefix(storageStandardized)
     }
     
     var body: some View {
@@ -353,9 +357,7 @@ struct FileCard: View {
                     .help("Open")
                     
                     Button(action: {
-                        if let thumb = thumbnail {
-                            copyImageToClipboard(thumb)
-                        }
+                        copyFullImageToClipboard()
                     }) {
                         Image(systemName: "photo.on.rectangle")
                             .font(.system(size: 12))
@@ -417,9 +419,7 @@ struct FileCard: View {
             
             if thumbnail != nil {
                 Button("Copy Image") {
-                    if let thumb = thumbnail {
-                        copyImageToClipboard(thumb)
-                    }
+                    copyFullImageToClipboard()
                 }
             }
             
@@ -449,10 +449,22 @@ struct FileCard: View {
         }
     }
     
-    func copyImageToClipboard(_ image: NSImage) {
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.writeObjects([image])
+    func copyFullImageToClipboard() {
+        // Only copy if the file is an image
+        let imageExtensions = ["jpg", "jpeg", "png", "gif", "bmp", "tiff", "heic", "webp"]
+        guard imageExtensions.contains(file.url.pathExtension.lowercased()) else {
+            print("⚠️ Cannot copy non-image file to clipboard")
+            return
+        }
+        
+        // Load the full-resolution image
+        if let fullImage = NSImage(contentsOf: file.url) {
+            let pasteboard = NSPasteboard.general
+            pasteboard.clearContents()
+            pasteboard.writeObjects([fullImage])
+        } else {
+            print("⚠️ Failed to load image from file")
+        }
     }
 }
 

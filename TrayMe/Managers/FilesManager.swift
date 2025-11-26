@@ -10,16 +10,25 @@ import Combine
 class FilesManager: ObservableObject {
     @Published var files: [FileItem] = []
     @Published var searchText: String = ""
-    @Published var shouldCopyFiles: Bool = false  // New setting
+    @AppStorage("shouldCopyFiles") var shouldCopyFiles: Bool = false
     
     private let maxFiles = 50
     private var thumbnailCache: [UUID: NSImage] = [:]
-    private var storageFolderURL: URL {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+    private var storageFolderURL: URL? {
+        guard let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+            print("❌ Failed to locate Application Support directory")
+            return nil
+        }
         let appFolder = appSupport.appendingPathComponent("TrayMe", isDirectory: true)
         let filesFolder = appFolder.appendingPathComponent("StoredFiles", isDirectory: true)
-        try? FileManager.default.createDirectory(at: filesFolder, withIntermediateDirectories: true)
-        return filesFolder
+        
+        do {
+            try FileManager.default.createDirectory(at: filesFolder, withIntermediateDirectories: true)
+            return filesFolder
+        } catch {
+            print("❌ Failed to create storage folder: \(error.localizedDescription)")
+            return nil
+        }
     }
     
     init() {
@@ -34,10 +43,23 @@ class FilesManager: ObservableObject {
         
         // Copy file if setting is enabled, otherwise just reference
         let finalURL: URL
+        let didCopy: Bool
         if shouldCopyFiles {
-            finalURL = copyFileToStorage(url) ?? url
+            if let copiedURL = copyFileToStorage(url) {
+                finalURL = copiedURL
+                didCopy = true
+            } else {
+                // Copy failed - show error and use reference instead
+                print("⚠️ Failed to copy file \(url.lastPathComponent), using reference instead")
+                DispatchQueue.main.async {
+                    // TODO: Show user-facing error notification
+                }
+                finalURL = url
+                didCopy = false
+            }
         } else {
             finalURL = url
+            didCopy = false
         }
         
         var newFile = FileItem(url: finalURL)
@@ -58,22 +80,33 @@ class FilesManager: ObservableObject {
     }
     
     private func populateFileMetadata(fileID: UUID) async {
+        // Safely capture the file first
         guard let index = files.firstIndex(where: { $0.id == fileID }) else { return }
+        var file = files[index]
         
+        // Run metadata population in background
         await Task.detached {
-            var file = await self.files[index]
             file.populateMetadata()
             
+            // Update back on main actor
             await MainActor.run {
-                self.files[index] = file
-                self.saveToDisk()
+                // Re-check index in case array was modified
+                if let currentIndex = self.files.firstIndex(where: { $0.id == fileID }) {
+                    self.files[currentIndex] = file
+                    self.saveToDisk()
+                }
             }
         }.value
     }
     
     private func copyFileToStorage(_ sourceURL: URL) -> URL? {
+        guard let storageFolder = storageFolderURL else {
+            print("❌ Storage folder unavailable, cannot copy file")
+            return nil
+        }
+        
         let fileName = sourceURL.lastPathComponent
-        let destinationURL = storageFolderURL.appendingPathComponent(fileName)
+        let destinationURL = storageFolder.appendingPathComponent(fileName)
         
         // If file exists, add number suffix
         var finalURL = destinationURL
@@ -82,7 +115,7 @@ class FilesManager: ObservableObject {
             let nameWithoutExt = sourceURL.deletingPathExtension().lastPathComponent
             let ext = sourceURL.pathExtension
             let newName = "\(nameWithoutExt) \(counter).\(ext)"
-            finalURL = storageFolderURL.appendingPathComponent(newName)
+            finalURL = storageFolder.appendingPathComponent(newName)
             counter += 1
         }
         
@@ -90,7 +123,7 @@ class FilesManager: ObservableObject {
             try FileManager.default.copyItem(at: sourceURL, to: finalURL)
             return finalURL
         } catch {
-            print("Failed to copy file: \(error)")
+            print("❌ Failed to copy file: \(error.localizedDescription)")
             return nil
         }
     }
@@ -101,8 +134,12 @@ class FilesManager: ObservableObject {
     
     func removeFile(_ file: FileItem) {
         // If file is in our storage folder, delete it
-        if file.url.path.starts(with: storageFolderURL.path) {
-            try? FileManager.default.removeItem(at: file.url)
+        if let storageFolder = storageFolderURL, isFileInStorage(file.url, storageFolder: storageFolder) {
+            do {
+                try FileManager.default.removeItem(at: file.url)
+            } catch {
+                print("⚠️ Failed to delete stored file: \(error.localizedDescription)")
+            }
         }
         
         files.removeAll { $0.id == file.id }
@@ -112,13 +149,25 @@ class FilesManager: ObservableObject {
     
     func clearAll() {
         // Delete all copied files
-        for file in files where file.url.path.starts(with: storageFolderURL.path) {
-            try? FileManager.default.removeItem(at: file.url)
+        if let storageFolder = storageFolderURL {
+            for file in files where isFileInStorage(file.url, storageFolder: storageFolder) {
+                do {
+                    try FileManager.default.removeItem(at: file.url)
+                } catch {
+                    print("⚠️ Failed to delete stored file: \(error.localizedDescription)")
+                }
+            }
         }
         
         files.removeAll()
         thumbnailCache.removeAll()
         saveToDisk()
+    }
+    
+    private func isFileInStorage(_ fileURL: URL, storageFolder: URL) -> Bool {
+        let fileStandardized = fileURL.standardizedFileURL.path
+        let storageStandardized = storageFolder.standardizedFileURL.path
+        return fileStandardized.hasPrefix(storageStandardized)
     }
     
     func openFile(_ file: FileItem) {
