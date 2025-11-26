@@ -369,10 +369,10 @@ struct FileCard: View {
                     }) {
                         Image(systemName: "trash")
                             .font(.system(size: 12))
-                            .foregroundColor(.red)
+                            .foregroundColor(isCopiedFile ? .red : .orange)
                     }
                     .buttonStyle(.plain)
-                    .help("Delete")
+                    .help(isCopiedFile ? "Delete file" : "Delete reference")
                 }
                 .padding(.top, 4)
             }
@@ -422,7 +422,7 @@ struct FileCard: View {
             
             Divider()
             
-            Button("Delete", role: .destructive) {
+            Button(isCopiedFile ? "Delete file" : "Delete reference", role: .destructive) {
                 manager.removeFile(file)
             }
         }

@@ -167,11 +167,37 @@ class FilesManager: ObservableObject {
     }
     
     func openFile(_ file: FileItem) {
-        NSWorkspace.shared.open(file.url)
+        guard let resolvedURL = file.resolvedURL() else {
+            print("❌ Cannot open file - URL resolution failed: \(file.name)")
+            return
+        }
+        
+        // Start accessing security-scoped resource for referenced files
+        let isAccessing = resolvedURL.startAccessingSecurityScopedResource()
+        defer {
+            if isAccessing {
+                resolvedURL.stopAccessingSecurityScopedResource()
+            }
+        }
+        
+        NSWorkspace.shared.open(resolvedURL)
     }
     
     func revealInFinder(_ file: FileItem) {
-        NSWorkspace.shared.activateFileViewerSelecting([file.url])
+        guard let resolvedURL = file.resolvedURL() else {
+            print("❌ Cannot reveal file - URL resolution failed: \(file.name)")
+            return
+        }
+        
+        // Start accessing security-scoped resource for referenced files
+        let isAccessing = resolvedURL.startAccessingSecurityScopedResource()
+        defer {
+            if isAccessing {
+                resolvedURL.stopAccessingSecurityScopedResource()
+            }
+        }
+        
+        NSWorkspace.shared.activateFileViewerSelecting([resolvedURL])
     }
     
     var filteredFiles: [FileItem] {
