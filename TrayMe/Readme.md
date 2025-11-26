@@ -27,8 +27,17 @@ Built with native Apple technologies for maximum performance and minimal resourc
 ### Files Hub (Drop Zone)
 - ✅ Drag & drop files from Desktop/Finder
 - ✅ Drag files out to other apps
-- ✅ Visual file cards with previews
+- ✅ **Quick Look preview** with spacebar (native macOS preview)
+- ✅ **Arrow key navigation** in Quick Look
+- ✅ **Native Finder-style thumbnails** for images
+- ✅ **Instant workspace icons** for all file types
+- ✅ **Copy files** to storage or **reference** originals
+- ✅ Visual badges (Green "Stored" vs Orange "Ref")
 - ✅ Quick open or reveal in Finder
+- ✅ Copy image to clipboard
+- ✅ **Security-scoped bookmarks** for persistent access
+- ✅ **File limit enforcement** (up to 100 files)
+- ✅ **Smart duplicate detection**
 - ✅ Temporary storage without Desktop clutter
 
 ### Quick Notes
