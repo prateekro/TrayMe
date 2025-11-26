@@ -110,6 +110,11 @@ struct FilesView: View {
                                 selectedFile = file
                                 isSearchFocused = false
                                 isFileAreaFocused = true
+                                
+                                // If Quick Look is already open, update preview to this file
+                                if let panel = QLPreviewPanel.shared(), panel.isVisible {
+                                    quickLookTrigger = true
+                                }
                             }
                         }
                     }
