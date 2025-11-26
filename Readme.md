@@ -139,7 +139,7 @@ TrayMe/
 - **Copy Files:** Duplicates files to app storage (survives original deletion)
 - **Reference Files:** Links to original location (smaller storage, requires original)
 - Toggle via "Copy Files" checkbox in Files tab footer
-- Visual badges: Green "Stored" or Blue "Ref"
+- Visual badges: Green "Stored" or Orange "Ref"
 
 ### First Launch
 1. Grant **Accessibility** permissions (for mouse tracking)

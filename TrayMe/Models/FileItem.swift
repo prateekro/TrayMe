@@ -15,7 +15,6 @@ struct FileItem: Identifiable, Codable {
     let addedDate: Date
     var iconData: Data?
     var bookmarkData: Data?  // Security-scoped bookmark
-    var thumbnailData: Data? // Cached thumbnail for persistence
     
     init(url: URL) {
         self.id = UUID()
@@ -41,13 +40,9 @@ struct FileItem: Identifiable, Codable {
     // Note: Relying on automatic Codable synthesis - custom decoder removed
     // Swift automatically synthesizes proper decoding for all properties
     
-    // Helper to populate icon and bookmark data asynchronously
+    // Helper to populate bookmark data asynchronously (only for referenced files)
     nonisolated mutating func populateMetadata() {
         print("🔖 populateMetadata called for: \(url.lastPathComponent)")
-        
-        // Get file icon
-        let icon = NSWorkspace.shared.icon(forFile: url.path)
-        self.iconData = icon.tiffRepresentation
         
         // Create security-scoped bookmark for referenced files
         do {
@@ -80,14 +75,6 @@ struct FileItem: Identifiable, Codable {
         case id, url, name, fileType, size, addedDate
         // iconData removed - regenerated instantly with NSWorkspace.shared.icon()
         // bookmarkData removed - stored separately for fast JSON loading
-        // thumbnailData removed - thumbnails regenerated on demand (fast with workspace icons)
-    }
-    
-    var thumbnail: NSImage? {
-        if let data = thumbnailData {
-            return NSImage(data: data)
-        }
-        return nil
     }
     
     // Check if referenced file still exists

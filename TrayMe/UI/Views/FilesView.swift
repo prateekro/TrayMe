@@ -6,7 +6,6 @@
 import SwiftUI
 import UniformTypeIdentifiers
 import Quartz
-import QuickLookThumbnailing
 
 struct FilesView: View {
     @EnvironmentObject var manager: FilesManager
@@ -27,6 +26,18 @@ struct FilesView: View {
     @State private var showLimitReductionAlert = false
     @State private var attemptedLimit = 25
     @State private var fileStatusRefreshTrigger = UUID() // Trigger to force FileCard re-render
+    
+    // Keyboard key codes for better readability
+    private enum KeyCode {
+        static let space: UInt16 = 49
+        static let leftArrow: UInt16 = 123
+        static let rightArrow: UInt16 = 124
+        static let downArrow: UInt16 = 125
+        static let upArrow: UInt16 = 126
+    }
+    
+    // Supported image file extensions (fileprivate to allow access from FileCard)
+    fileprivate static let imageExtensions = ["jpg", "jpeg", "png", "gif", "bmp", "tiff", "heic", "webp"]
     
     enum ClearAction {
         case allReferences
@@ -432,7 +443,7 @@ struct FilesView: View {
     func setupEventMonitor() {
         eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             // Handle space bar - toggle Quick Look
-            if event.keyCode == 49 && selectedFile != nil && !isSearchFocused {
+            if event.keyCode == KeyCode.space && selectedFile != nil && !isSearchFocused {
                 if let panel = QLPreviewPanel.shared(), panel.isVisible {
                     panel.orderOut(nil)
                 } else {
@@ -446,13 +457,13 @@ struct FilesView: View {
                 let currentIndex = manager.filteredFiles.firstIndex { $0.id == selectedFile?.id } ?? 0
                 
                 switch event.keyCode {
-                case 123, 126: // Left arrow or Up arrow - previous file
+                case KeyCode.leftArrow, KeyCode.upArrow: // Left arrow or Up arrow - previous file
                     if currentIndex > 0 {
                         selectedFile = manager.filteredFiles[currentIndex - 1]
                         quickLookTrigger = true
                         return nil
                     }
-                case 124, 125: // Right arrow or Down arrow - next file
+                case KeyCode.rightArrow, KeyCode.downArrow: // Right arrow or Down arrow - next file
                     if currentIndex < manager.filteredFiles.count - 1 {
                         selectedFile = manager.filteredFiles[currentIndex + 1]
                         quickLookTrigger = true
@@ -468,7 +479,7 @@ struct FilesView: View {
         
         // Listen for panel hide notification to close Quick Look
         panelHideObserver = NotificationCenter.default.addObserver(
-            forName: NSNotification.Name("MainPanelWillHide"),
+            forName: .mainPanelWillHide,
             object: nil,
             queue: .main
         ) { _ in
@@ -753,8 +764,7 @@ struct FileCard: View {
             }
             
             // Only show "Copy Image" for image files
-            let imageExtensions = ["jpg", "jpeg", "png", "gif", "bmp", "tiff", "heic", "webp"]
-            if imageExtensions.contains(file.fileType.lowercased()) {
+            if FilesView.imageExtensions.contains(file.fileType.lowercased()) {
                 Button("Copy Image") {
                     copyFullImageToClipboard()
                 }
@@ -793,8 +803,7 @@ struct FileCard: View {
     
     func loadImageThumbnail() {
         // Only generate thumbnails for images - everything else uses workspace icons
-        let imageExtensions = ["jpg", "jpeg", "png", "gif", "bmp", "tiff", "heic", "webp"]
-        guard imageExtensions.contains(file.fileType.lowercased()) else {
+        guard FilesView.imageExtensions.contains(file.fileType.lowercased()) else {
             return // Non-images get workspace icons (instant)
         }
         
@@ -816,18 +825,35 @@ struct FileCard: View {
                 }
             }
             
-            // Load and resize image
+            // Load and resize image using modern NSGraphicsContext API
             guard let image = NSImage(contentsOf: resolvedURL) else { return }
             
             let targetSize = CGSize(width: 160, height: 120)
             let thumbnail = NSImage(size: targetSize)
-            thumbnail.lockFocus()
             
-            let imageRect = NSRect(origin: .zero, size: image.size)
-            let thumbnailRect = NSRect(origin: .zero, size: targetSize)
-            
-            image.draw(in: thumbnailRect, from: imageRect, operation: .copy, fraction: 1.0)
-            thumbnail.unlockFocus()
+            // Use modern NSGraphicsContext API instead of deprecated lockFocus
+            if let bitmapRep = NSBitmapImageRep(
+                bitmapDataPlanes: nil,
+                pixelsWide: Int(targetSize.width),
+                pixelsHigh: Int(targetSize.height),
+                bitsPerSample: 8,
+                samplesPerPixel: 4,
+                hasAlpha: true,
+                isPlanar: false,
+                colorSpaceName: .deviceRGB,
+                bytesPerRow: 0,
+                bitsPerPixel: 0
+            ) {
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmapRep)
+                
+                let imageRect = NSRect(origin: .zero, size: image.size)
+                let thumbnailRect = NSRect(origin: .zero, size: targetSize)
+                image.draw(in: thumbnailRect, from: imageRect, operation: .copy, fraction: 1.0)
+                
+                NSGraphicsContext.restoreGraphicsState()
+                thumbnail.addRepresentation(bitmapRep)
+            }
             
             // Cache to disk for next time (PNG is small and fast)
             FilesManager.cacheThumbnail(thumbnail, for: resolvedURL)
@@ -840,8 +866,7 @@ struct FileCard: View {
     
     func copyFullImageToClipboard() {
         // Only copy if the file is an image
-        let imageExtensions = ["jpg", "jpeg", "png", "gif", "bmp", "tiff", "heic", "webp"]
-        guard imageExtensions.contains(file.url.pathExtension.lowercased()) else {
+        guard FilesView.imageExtensions.contains(file.url.pathExtension.lowercased()) else {
             print("⚠️ Cannot copy non-image file to clipboard")
             return
         }

@@ -26,16 +26,22 @@ class FilesManager: ObservableObject {
     }
     
     // Fast thumbnail cache directory - uses Caches (cleaned by system when needed)
-    private static let thumbnailCacheDir: URL = {
-        let appSupport = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+    private static let thumbnailCacheDir: URL? = {
+        guard let appSupport = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else {
+            print("❌ Could not access Caches directory")
+            return nil
+        }
         let cacheDir = appSupport.appendingPathComponent("TrayMe/Thumbnails")
         try? FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
         return cacheDir
     }()
     
     // Fast bookmark cache directory - separate from JSON for speed
-    private static let bookmarkCacheDir: URL = {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+    private static let bookmarkCacheDir: URL? = {
+        guard let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+            print("❌ Could not access Application Support directory")
+            return nil
+        }
         let cacheDir = appSupport.appendingPathComponent("TrayMe/Bookmarks")
         try? FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
         return cacheDir
@@ -48,19 +54,22 @@ class FilesManager: ObservableObject {
     
     // Save bookmark to separate file (much faster than JSON)
     static func saveBookmark(_ data: Data, for fileID: UUID) {
-        let cacheFile = bookmarkCacheDir.appendingPathComponent(bookmarkCacheKey(for: fileID))
+        guard let cacheDir = bookmarkCacheDir else { return }
+        let cacheFile = cacheDir.appendingPathComponent(bookmarkCacheKey(for: fileID))
         try? data.write(to: cacheFile, options: .atomic)
     }
     
     // Load bookmark from cache
     static func loadBookmark(for fileID: UUID) -> Data? {
-        let cacheFile = bookmarkCacheDir.appendingPathComponent(bookmarkCacheKey(for: fileID))
+        guard let cacheDir = bookmarkCacheDir else { return nil }
+        let cacheFile = cacheDir.appendingPathComponent(bookmarkCacheKey(for: fileID))
         return try? Data(contentsOf: cacheFile)
     }
     
     // Delete bookmark from cache
     static func deleteBookmark(for fileID: UUID) {
-        let cacheFile = bookmarkCacheDir.appendingPathComponent(bookmarkCacheKey(for: fileID))
+        guard let cacheDir = bookmarkCacheDir else { return }
+        let cacheFile = cacheDir.appendingPathComponent(bookmarkCacheKey(for: fileID))
         try? FileManager.default.removeItem(at: cacheFile)
     }
     
@@ -73,19 +82,21 @@ class FilesManager: ObservableObject {
     
     // Get cached thumbnail (super fast - just file read)
     static func getCachedThumbnail(for fileURL: URL) -> NSImage? {
-        let cacheFile = thumbnailCacheDir.appendingPathComponent(thumbnailCacheKey(for: fileURL))
+        guard let cacheDir = thumbnailCacheDir else { return nil }
+        let cacheFile = cacheDir.appendingPathComponent(thumbnailCacheKey(for: fileURL))
         return NSImage(contentsOf: cacheFile)
     }
     
     // Save thumbnail to cache (PNG is fast and small)
     static func cacheThumbnail(_ image: NSImage, for fileURL: URL) {
+        guard let cacheDir = thumbnailCacheDir else { return }
         guard let tiffData = image.tiffRepresentation,
               let bitmap = NSBitmapImageRep(data: tiffData),
               let pngData = bitmap.representation(using: .png, properties: [:]) else {
             return
         }
         
-        let cacheFile = thumbnailCacheDir.appendingPathComponent(thumbnailCacheKey(for: fileURL))
+        let cacheFile = cacheDir.appendingPathComponent(thumbnailCacheKey(for: fileURL))
         try? pngData.write(to: cacheFile, options: .atomic)
     }
     
@@ -110,8 +121,8 @@ class FilesManager: ObservableObject {
         let startTime = CFAbsoluteTimeGetCurrent()
         print("🔍 FilesManager init started")
         
-        // Load files synchronously - it's fast (just JSON parsing, no validation)
-        // Async added unnecessary overhead and caused UI delays
+        // Load files asynchronously in background to avoid blocking app launch
+        // JSON parsing is fast (~10KB), but we do it off main thread for best performance
         loadFromDisk()
         
         let timeElapsed = CFAbsoluteTimeGetCurrent() - startTime
@@ -224,15 +235,23 @@ class FilesManager: ObservableObject {
         let fileName = sourceURL.lastPathComponent
         let destinationURL = storageFolder.appendingPathComponent(fileName)
         
-        // If file exists, add number suffix
+        // Prevent infinite loop - limit retries to 1000
+        let maxRetries = 1000
         var finalURL = destinationURL
         var counter = 1
-        while FileManager.default.fileExists(atPath: finalURL.path) {
+        
+        while FileManager.default.fileExists(atPath: finalURL.path) && counter < maxRetries {
             let nameWithoutExt = sourceURL.deletingPathExtension().lastPathComponent
             let ext = sourceURL.pathExtension
             let newName = "\(nameWithoutExt) \(counter).\(ext)"
             finalURL = storageFolder.appendingPathComponent(newName)
             counter += 1
+        }
+        
+        // Safety check - if we hit max retries, abort
+        if counter >= maxRetries {
+            print("❌ Max retries reached (\(maxRetries)) when trying to copy \(fileName)")
+            return nil
         }
         
         do {
@@ -260,7 +279,8 @@ class FilesManager: ObservableObject {
             let hasDuplicate = files.contains { existingFile in
                 let existingStandardized = existingFile.url.standardizedFileURL
                 
-                guard let storageFolder = storageFolderURL else { return false }
+                // If storage folder is unavailable, treat all files as duplicates to be safe
+                guard let storageFolder = storageFolderURL else { return true }
                 
                 let isExistingStored = isFileInStorage(existingFile.url, storageFolder: storageFolder)
                 let willBeStored = shouldCopyFiles

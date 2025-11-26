@@ -294,7 +294,7 @@ class MainPanel: NSPanel {
             print("🎬 Animation complete. isDragging: \(self.isDragging)")
             if !self.isDragging {
                 print("🔔 Posting FocusNotes notification")
-                NotificationCenter.default.post(name: NSNotification.Name("FocusNotes"), object: nil)
+                NotificationCenter.default.post(name: .focusNotes, object: nil)
             }
         }
     }
@@ -315,7 +315,7 @@ class MainPanel: NSPanel {
         guard let screen = NSScreen.main else { return }
         
         // Close Quick Look if it's open
-        NotificationCenter.default.post(name: NSNotification.Name("MainPanelWillHide"), object: nil)
+        NotificationCenter.default.post(name: .mainPanelWillHide, object: nil)
         
         NSAnimationContext.runAnimationGroup({ context in
             context.duration = 0.25
