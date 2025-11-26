@@ -10,6 +10,7 @@ import QuickLookThumbnailing
 
 struct FilesView: View {
     @EnvironmentObject var manager: FilesManager
+    @Environment(\.controlActiveState) private var controlActiveState
     @State private var hoveredFile: UUID?
     @State private var isDragging = false
     @State private var selectedFile: FileItem?
@@ -102,6 +103,7 @@ struct FilesView: View {
                                 file: file,
                                 isHovered: hoveredFile == file.id,
                                 isSelected: selectedFile?.id == file.id,
+                                isWindowFocused: controlActiveState == .key,
                                 showCopiedFeedback: $showCopiedFeedback,
                                 refreshTrigger: fileStatusRefreshTrigger
                             )
@@ -357,6 +359,12 @@ struct FilesView: View {
         .onDisappear {
             removeEventMonitor()
         }
+        .onChange(of: controlActiveState) { oldValue, newValue in
+            // Clear selection when window loses focus
+            if newValue != .key {
+                selectedFile = nil
+            }
+        }
         .onDrop(of: [.fileURL], isTargeted: $isDragging) { providers in
             handleDrop(providers: providers)
             return true
@@ -559,6 +567,7 @@ struct FileCard: View {
     let file: FileItem
     let isHovered: Bool
     let isSelected: Bool
+    let isWindowFocused: Bool
     @State private var isCopiedFile: Bool = false
     @State private var imageThumbnail: NSImage? = nil
     @State private var isFileMissing: Bool = false
@@ -682,7 +691,7 @@ struct FileCard: View {
                     
                     Button(action: {
                         manager.revealInFinder(file)
-                    }) {
+                         }) {
                         Image(systemName: "folder")
                             .font(.system(size: 12))
                     }
@@ -706,7 +715,13 @@ struct FileCard: View {
         .padding(8)
         .background(
             RoundedRectangle(cornerRadius: 8)
-                .fill(isSelected ? Color.accentColor.opacity(0.2) : isHovered ? Color.accentColor.opacity(0.1) : Color(NSColor.controlBackgroundColor))
+                .fill(
+                    isSelected && isWindowFocused 
+                        ? Color.accentColor.opacity(0.2) 
+                        : isHovered 
+                            ? Color.accentColor.opacity(0.1) 
+                            : Color(NSColor.controlBackgroundColor)
+                )
         )
         .overlay(
             RoundedRectangle(cornerRadius: 8)

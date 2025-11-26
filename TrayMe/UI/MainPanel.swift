@@ -289,6 +289,13 @@ class MainPanel: NSPanel {
             context.duration = 0.3
             context.timingFunction = CAMediaTimingFunction(name: .easeOut)
             self.animator().setFrame(NSRect(x: currentFrame.origin.x, y: targetY, width: panelWidth, height: panelHeight), display: true)
+        } completionHandler: {
+            // After animation, focus notes if not dragging files
+            print("🎬 Animation complete. isDragging: \(self.isDragging)")
+            if !self.isDragging {
+                print("🔔 Posting FocusNotes notification")
+                NotificationCenter.default.post(name: NSNotification.Name("FocusNotes"), object: nil)
+            }
         }
     }
     
