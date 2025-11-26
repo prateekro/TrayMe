@@ -4,6 +4,7 @@
 //
 
 import Foundation
+import SwiftUI
 
 enum NoteColor: String, Codable, CaseIterable {
     case none = "none"
@@ -23,6 +24,18 @@ enum NoteColor: String, Codable, CaseIterable {
         case .green: return "Green"
         case .blue: return "Blue"
         case .purple: return "Purple"
+        }
+    }
+    
+    var swiftUIColor: Color {
+        switch self {
+        case .none: return .clear
+        case .red: return .red
+        case .orange: return .orange
+        case .yellow: return .yellow
+        case .green: return .green
+        case .blue: return .blue
+        case .purple: return .purple
         }
     }
 }
@@ -90,6 +103,7 @@ struct Note: Identifiable, Codable {
     
     // MARK: - Statistics
     
+    /// Total word count across title and content
     var wordCount: Int {
         let combined = title + " " + content
         let words = combined.components(separatedBy: .whitespacesAndNewlines)
@@ -97,12 +111,16 @@ struct Note: Identifiable, Codable {
         return words.count
     }
     
+    /// Total character count across title and content
     var characterCount: Int {
         return title.count + content.count
     }
     
+    /// Line count of the note content only (title is single line by design)
     var lineCount: Int {
-        let lines = content.components(separatedBy: .newlines)
-        return max(1, lines.count)
+        var count = title.isEmpty ? 0 : 1  // Count title as 1 line if not empty
+        let contentLines = content.components(separatedBy: .newlines)
+        count += contentLines.count
+        return max(1, count)
     }
 }

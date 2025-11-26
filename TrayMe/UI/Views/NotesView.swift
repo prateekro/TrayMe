@@ -127,13 +127,13 @@ struct NotesView: View {
                                 
                                 Menu("Color") {
                                     ForEach(NoteColor.allCases, id: \.self) { color in
-                                        Button(action: {
+                                Button(action: {
                                             manager.setNoteColor(note, color: color)
                                         }) {
                                             HStack {
                                                 if color != .none {
                                                     Circle()
-                                                        .fill(colorForNoteColor(color))
+                                                        .fill(color.swiftUIColor)
                                                         .frame(width: 10, height: 10)
                                                 }
                                                 Text(color.displayName)
@@ -148,10 +148,7 @@ struct NotesView: View {
                                 Divider()
                                 
                                 Button(role: .destructive, action: {
-                                    manager.deleteNote(note)
-                                    if let firstNote = manager.notes.first {
-                                        selectNote(firstNote)
-                                    }
+                                    performDeleteNote(note)
                                 }) {
                                     Label("Delete", systemImage: "trash")
                                 }
@@ -188,7 +185,7 @@ struct NotesView: View {
                     HStack(spacing: 8) {
                         if selectedNote.color != .none {
                             Circle()
-                                .fill(colorForNoteColor(selectedNote.color))
+                                .fill(selectedNote.color.swiftUIColor)
                                 .frame(width: 12, height: 12)
                         }
                         
@@ -222,7 +219,7 @@ struct NotesView: View {
                                         HStack {
                                             if color != .none {
                                                 Circle()
-                                                    .fill(colorForNoteColor(color))
+                                                    .fill(color.swiftUIColor)
                                                     .frame(width: 10, height: 10)
                                             }
                                             Text(color.displayName)
@@ -380,10 +377,7 @@ struct NotesView: View {
                         .alert("Delete Note?", isPresented: $showDeleteConfirmation) {
                             Button("Cancel", role: .cancel) { }
                             Button("Delete", role: .destructive) {
-                                manager.deleteNote(selectedNote)
-                                if let firstNote = manager.notes.first {
-                                    selectNote(firstNote)
-                                }
+                                performDeleteNote(selectedNote)
                             }
                         } message: {
                             Text("Are you sure you want to delete \"\(selectedNote.displayTitle)\"? This action cannot be undone.")
@@ -453,15 +447,10 @@ struct NotesView: View {
         noteContent = note.content
     }
     
-    func colorForNoteColor(_ color: NoteColor) -> Color {
-        switch color {
-        case .none: return .clear
-        case .red: return .red
-        case .orange: return .orange
-        case .yellow: return .yellow
-        case .green: return .green
-        case .blue: return .blue
-        case .purple: return .purple
+    func performDeleteNote(_ note: Note) {
+        manager.deleteNote(note)
+        if let firstNote = manager.notes.first {
+            selectNote(firstNote)
         }
     }
 }
@@ -476,7 +465,7 @@ struct NoteListItem: View {
             // Color indicator bar
             if note.color != .none {
                 Rectangle()
-                    .fill(colorForNoteColor(note.color))
+                    .fill(note.color.swiftUIColor)
                     .frame(width: 3)
             }
             
@@ -522,17 +511,5 @@ struct NoteListItem: View {
                 .fill(isSelected ? Color.accentColor.opacity(0.2) : Color.clear)
         )
         .padding(.horizontal, 4)
-    }
-    
-    func colorForNoteColor(_ color: NoteColor) -> Color {
-        switch color {
-        case .none: return .clear
-        case .red: return .red
-        case .orange: return .orange
-        case .yellow: return .yellow
-        case .green: return .green
-        case .blue: return .blue
-        case .purple: return .purple
-        }
     }
 }
