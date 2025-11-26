@@ -15,6 +15,10 @@ class FilesManager: ObservableObject {
     @AppStorage("shouldCopyFiles") var shouldCopyFiles: Bool = false
     @AppStorage("maxFiles") private var storedMaxFiles: Int = 50
     
+    // Debounce save operations to avoid excessive disk writes
+    private var saveWorkItem: DispatchWorkItem?
+    private let saveDebounceInterval: TimeInterval = 0.5 // Wait 500ms before saving
+    
     // Computed property to enforce max limit of 100
     var maxFiles: Int {
         get { min(storedMaxFiles, 100) }
@@ -241,8 +245,10 @@ class FilesManager: ObservableObject {
     }
     
     func addFiles(urls: [URL]) {
+        #if DEBUG
         print("📥 addFiles called with \(urls.count) URLs")
         print("📥 Copy mode: \(shouldCopyFiles ? "COPY" : "REFERENCE")")
+        #endif
         
         // Smart duplicate filtering:
         // - Block if same file already exists in same mode (reference or stored)
@@ -272,18 +278,24 @@ class FilesManager: ObservableObject {
                 return false
             }
             
+            #if DEBUG
             if hasDuplicate {
                 print("⏭️ Skipping duplicate: \(url.lastPathComponent) (already exists in same mode)")
             } else {
                 print("✅ Will add: \(url.lastPathComponent)")
             }
+            #endif
             return !hasDuplicate
         }
         
+        #if DEBUG
         print("📥 After filtering: \(newURLs.count) new files to add")
+        #endif
         
         guard !newURLs.isEmpty else {
+            #if DEBUG
             print("⚠️ No new files to add (all were duplicates)")
+            #endif
             return
         }
         
@@ -304,32 +316,28 @@ class FilesManager: ObservableObject {
                 finalURL = url
             }
             
-            var newFile = FileItem(url: finalURL)
-            
-            // CRITICAL: Populate bookmarks immediately for reference files
-            // Store bookmarks separately from JSON for fast loading
-            if !shouldCopyFiles {
-                newFile.populateMetadata()
-                
-                // Save bookmark to separate cache file (not in JSON!)
-                if let bookmarkData = newFile.bookmarkData {
-                    FilesManager.saveBookmark(bookmarkData, for: newFile.id)
-                    print("📑 Saved bookmark to cache for: \(newFile.name)")
-                }
-            }
-            // For stored files, we don't need bookmarks (they're in our app sandbox)
-            
+            let newFile = FileItem(url: finalURL)
             newFiles.append(newFile)
         }
         
-        // Add all new files at once and save only once
+        // Add all new files at once
         DispatchQueue.main.async {
             self.files.insert(contentsOf: newFiles, at: 0)
-            
-            // No truncation here - validation happens before drop in FilesView
-            // This ensures we don't lose existing files
-            
             self.saveToDisk()
+        }
+        
+        // Create bookmarks in background (non-blocking)
+        if !shouldCopyFiles {
+            DispatchQueue.global(qos: .utility).async {
+                for var file in newFiles {
+                    file.populateMetadata()
+                    
+                    if let bookmarkData = file.bookmarkData {
+                        FilesManager.saveBookmark(bookmarkData, for: file.id)
+                        print("📑 Saved bookmark to cache for: \(file.name)")
+                    }
+                }
+            }
         }
     }
     
@@ -480,11 +488,25 @@ class FilesManager: ObservableObject {
     }
     
     func saveToDisk() {
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
+        // Cancel any pending save
+        saveWorkItem?.cancel()
         
-        if let data = try? encoder.encode(files) {
-            try? data.write(to: saveURL)
+        // Create new debounced save task
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self = self else { return }
+            
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
+            encoder.outputFormatting = [] // No pretty printing for speed
+            
+            if let data = try? encoder.encode(self.files) {
+                try? data.write(to: self.saveURL, options: .atomic)
+            }
         }
+        
+        saveWorkItem = workItem
+        
+        // Execute after debounce interval (batch multiple saves)
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + saveDebounceInterval, execute: workItem)
     }
 }
