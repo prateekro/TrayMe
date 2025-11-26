@@ -25,6 +25,7 @@ struct FilesView: View {
     @State private var dropLimitMessage = ""
     @State private var showLimitReductionAlert = false
     @State private var attemptedLimit = 25
+    @State private var fileStatusRefreshTrigger = UUID() // Trigger to force FileCard re-render
     
     enum ClearAction {
         case allReferences
@@ -101,7 +102,8 @@ struct FilesView: View {
                                 file: file,
                                 isHovered: hoveredFile == file.id,
                                 isSelected: selectedFile?.id == file.id,
-                                showCopiedFeedback: $showCopiedFeedback
+                                showCopiedFeedback: $showCopiedFeedback,
+                                refreshTrigger: fileStatusRefreshTrigger
                             )
                             .onHover { hovering in
                                 hoveredFile = hovering ? file.id : nil
@@ -219,6 +221,17 @@ struct FilesView: View {
                         } label: {
                             Label("File Limit (\(manager.maxFiles))", systemImage: "number.square")
                         }
+                        
+                        Divider()
+                        
+                        // Refresh references
+                        Button(action: {
+                            refreshMissingFileStates()
+                        }) {
+                            Label("Refresh File Status", systemImage: "arrow.clockwise")
+                        }
+                        .keyboardShortcut(.init("r"), modifiers: [.command])
+                        .help("Re-check if reference files still exist")
                         
                         Divider()
                         
@@ -469,6 +482,12 @@ struct FilesView: View {
         }
     }
     
+    func refreshMissingFileStates() {
+        print("🔄 Refreshing file status for all reference files...")
+        // Trigger re-check by changing the UUID (forces FileCard to re-run onAppear)
+        fileStatusRefreshTrigger = UUID()
+    }
+    
     func handleDrop(providers: [NSItemProvider]) {
         let dropCount = providers.count
         let currentCount = manager.files.count
@@ -542,7 +561,9 @@ struct FileCard: View {
     let isSelected: Bool
     @State private var isCopiedFile: Bool = false
     @State private var imageThumbnail: NSImage? = nil
+    @State private var isFileMissing: Bool = false
     @Binding var showCopiedFeedback: Bool
+    let refreshTrigger: UUID // When this changes, re-check file status
     
     // Computed property for instant icon - no async needed!
     private var displayIcon: NSImage {
@@ -571,11 +592,26 @@ struct FileCard: View {
         VStack(spacing: 8) {
             // File thumbnail/icon with badge
             ZStack(alignment: .topTrailing) {
-                Image(nsImage: displayIcon)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .frame(width: 80, height: 60)
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                ZStack {
+                    Image(nsImage: displayIcon)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: 80, height: 60)
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                        .opacity(isFileMissing ? 0.3 : 1.0)
+                    
+                    // Missing file indicator
+                    if isFileMissing {
+                        VStack(spacing: 2) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.system(size: 20))
+                                .foregroundColor(.orange)
+                            Text("Missing")
+                                .font(.system(size: 8, weight: .semibold))
+                                .foregroundColor(.orange)
+                        }
+                    }
+                }
                 
                 // Storage type badge
                 if isCopiedFile {
@@ -602,10 +638,10 @@ struct FileCard: View {
                     .foregroundColor(.white)
                     .padding(.horizontal, 4)
                     .padding(.vertical, 2)
-                    .background(Color.orange)
+                    .background(isFileMissing ? Color.red : Color.orange)
                     .clipShape(RoundedRectangle(cornerRadius: 3))
                     .offset(x: -2, y: 2)
-                    .help("Reference only - original file remains in its location")
+                    .help(isFileMissing ? "Original file not found - may have been moved or deleted" : "Reference only - original file remains in its location")
                 }
             }
             .frame(width: 80, height: 60)
@@ -680,16 +716,12 @@ struct FileCard: View {
             NSItemProvider(object: file.url as NSURL)
         }
         .onAppear {
-            // Compute isCopiedFile once on appear
-            if let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
-                let storageFolder = appSupport.appendingPathComponent("TrayMe/StoredFiles")
-                let fileStandardized = file.url.standardizedFileURL.path
-                let storageStandardized = storageFolder.standardizedFileURL.path
-                isCopiedFile = fileStandardized.hasPrefix(storageStandardized)
-            }
-            
-            // Load image thumbnails (fast and look great like Finder)
+            checkFileStatus()
             loadImageThumbnail()
+        }
+        .onChange(of: refreshTrigger) {
+            // Re-check file status when refresh is triggered
+            checkFileStatus()
         }
         .contextMenu {
             Text(isCopiedFile ? "📦 Stored File" : "🔗 Referenced File")
@@ -717,6 +749,29 @@ struct FileCard: View {
             
             Button(isCopiedFile ? "Delete file" : "Delete reference", role: .destructive) {
                 manager.removeFile(file)
+            }
+        }
+    }
+    
+    func checkFileStatus() {
+        // Compute isCopiedFile once on appear
+        if let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+            let storageFolder = appSupport.appendingPathComponent("TrayMe/StoredFiles")
+            let fileStandardized = file.url.standardizedFileURL.path
+            let storageStandardized = storageFolder.standardizedFileURL.path
+            isCopiedFile = fileStandardized.hasPrefix(storageStandardized)
+        }
+        
+        // Check if reference file still exists (only for reference files)
+        if !isCopiedFile {
+            print("🔍 Checking if reference file exists: \(file.name)")
+            Task(priority: .utility) {
+                let exists = file.fileExists()
+                print("🔍 File existence result for \(file.name): \(exists)")
+                await MainActor.run {
+                    isFileMissing = !exists
+                    print("🔍 Set isFileMissing = \(isFileMissing) for \(file.name)")
+                }
             }
         }
     }

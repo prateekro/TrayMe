@@ -90,6 +90,17 @@ struct FileItem: Identifiable, Codable {
         return nil
     }
     
+    // Check if referenced file still exists
+    func fileExists() -> Bool {
+        guard let url = resolvedURL() else {
+            print("❌ fileExists: Could not resolve URL for \(name)")
+            return false
+        }
+        let exists = FileManager.default.fileExists(atPath: url.path)
+        print("📁 fileExists check for \(name): \(exists) at \(url.path)")
+        return exists
+    }
+    
     // Helper to resolve URL from bookmark if available
     // Bookmarks are stored separately for fast JSON loading
     func resolvedURL() -> URL? {
