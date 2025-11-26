@@ -306,6 +306,7 @@ struct FileCard: View {
                     .background(Color.green)
                     .clipShape(RoundedRectangle(cornerRadius: 3))
                     .offset(x: -2, y: 2)
+                    .help("File stored in app - will be deleted if you clear storage")
                 } else {
                     HStack(spacing: 2) {
                         Image(systemName: "link")
@@ -319,20 +320,23 @@ struct FileCard: View {
                     .background(Color.blue.opacity(0.8))
                     .clipShape(RoundedRectangle(cornerRadius: 3))
                     .offset(x: -2, y: 2)
+                    .help("Reference only - original file remains in its location")
                 }
             }
             .frame(width: 80, height: 60)
             
-            // File name
+            // File name with tooltip showing full name
             Text(file.name)
                 .font(.system(size: 11))
                 .lineLimit(2)
                 .multilineTextAlignment(.center)
+                .help(file.name)
             
             // File size
             Text(file.formattedSize)
                 .font(.system(size: 9))
                 .foregroundColor(.secondary)
+                .help("File size: \(file.formattedSize)")
             
             // Actions (visible on hover)
             if isHovered {
