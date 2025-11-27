@@ -380,11 +380,77 @@ struct ClipboardDetailView: View {
             .padding()
             .background(Color(NSColor.controlBackgroundColor))
         }
-        .sheet(isPresented: $showingImageEditor) {
-            ImageEditorView(item: item, onClose: {
-                showingImageEditor = false
-            })
-            .environmentObject(manager)
+        .onChange(of: showingImageEditor) { oldValue, newValue in
+            if newValue && !oldValue {
+                // Delay to avoid state modification during view update
+                DispatchQueue.main.async {
+                    ImageEditorWindowController.shared.openEditor(for: item)
+                }
+            } else if !newValue && oldValue {
+                ImageEditorWindowController.shared.closeEditor()
+            }
         }
+    }
+}
+
+// MARK: - Image Editor Window Controller
+class ImageEditorWindowController {
+    static let shared = ImageEditorWindowController()
+    
+    private var editorWindow: NSWindow?
+    private var windowCloseObserver: NSObjectProtocol?
+    
+    private init() {}
+    
+    func openEditor(for item: ClipboardItem) {
+        // Close existing window if any
+        if editorWindow != nil {
+            closeEditor()
+        }
+        
+        let editorView = ImageEditorView(item: item) { [weak self] in
+            self?.closeEditor()
+        }
+        .environmentObject(ClipboardManager.shared)
+        
+        let hostingController = NSHostingController(rootView: editorView)
+        
+        let window = NSWindow(contentViewController: hostingController)
+        window.title = "Image Editor"
+        window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
+        window.setContentSize(NSSize(width: 800, height: 700))
+        window.center()
+        window.isReleasedWhenClosed = false
+        window.level = .floating
+        window.minSize = NSSize(width: 600, height: 500)
+        
+        window.makeKeyAndOrderFront(nil)
+        editorWindow = window
+        
+        // Handle window close button
+        windowCloseObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            self?.cleanup()
+        }
+    }
+    
+    func closeEditor() {
+        editorWindow?.close()
+        cleanup()
+    }
+    
+    private func cleanup() {
+        if let observer = windowCloseObserver {
+            NotificationCenter.default.removeObserver(observer)
+            windowCloseObserver = nil
+        }
+        editorWindow = nil
+    }
+    
+    deinit {
+        cleanup()
     }
 }

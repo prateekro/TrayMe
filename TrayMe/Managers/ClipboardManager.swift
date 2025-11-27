@@ -8,6 +8,8 @@ import AppKit
 import Combine
 
 class ClipboardManager: ObservableObject {
+    static let shared = ClipboardManager()
+    
     @Published var items: [ClipboardItem] = []
     @Published var favorites: [ClipboardItem] = []
     @Published var searchText: String = ""

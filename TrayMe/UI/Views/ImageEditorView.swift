@@ -8,6 +8,11 @@ import AppKit
 import CoreImage
 import CoreImage.CIFilterBuiltins
 
+enum EditorMode {
+    case edit
+    case annotate
+}
+
 struct ImageEditorView: View {
     @EnvironmentObject var manager: ClipboardManager
     @State private var editedImage: NSImage
@@ -16,6 +21,9 @@ struct ImageEditorView: View {
     @State private var flipHorizontal: Bool = false
     @State private var flipVertical: Bool = false
     @State private var showingSaveAlert: Bool = false
+    
+    // Mode
+    @State private var editorMode: EditorMode = .edit
     
     // Crop state
     @State private var isCropping: Bool = false
@@ -33,6 +41,22 @@ struct ImageEditorView: View {
     @State private var saturation: Double = 1.0
     @State private var selectedFilter: ImageFilter = .none
     @State private var showingFilters: Bool = false
+    
+    // Annotation state
+    @State private var annotations: [Annotation] = []
+    @State private var currentAnnotation: Annotation?
+    @State private var selectedTool: AnnotationTool = .draw
+    @State private var annotationColor: NSColor = .red
+    @State private var annotationLineWidth: CGFloat = 3.0
+    @State private var showingTextInput: Bool = false
+    @State private var textInputPosition: CGPoint = .zero
+    @State private var textInputValue: String = ""
+    @State private var selectedAnnotationIndex: Int?
+    
+    // Additional features
+    @State private var showingHistory: Bool = false
+    @State private var editHistory: [NSImage] = []
+    @State private var historyIndex: Int = -1
     
     let originalItem: ClipboardItem
     let onClose: () -> Void
@@ -67,6 +91,16 @@ struct ImageEditorView: View {
                 
                 Spacer()
                 
+                // Mode switcher
+                Picker("Mode", selection: $editorMode) {
+                    Text("Edit").tag(EditorMode.edit)
+                    Text("Annotate").tag(EditorMode.annotate)
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 200)
+                
+                Spacer()
+                
                 Button("Reset All") {
                     resetAll()
                 }
@@ -84,49 +118,95 @@ struct ImageEditorView: View {
             
             Divider()
             
-            // Image preview with transformations
-            GeometryReader { geometry in
-                ScrollView([.horizontal, .vertical]) {
-                    Image(nsImage: applyFiltersToImage())
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(maxWidth: geometry.size.width * 0.9)
-                        .scaleEffect(scale)
-                        .rotationEffect(.degrees(rotation))
-                        .scaleEffect(x: flipHorizontal ? -1 : 1, y: flipVertical ? -1 : 1)
-                        .padding()
+            // Image preview/canvas
+            ZStack {
+                Color(NSColor.controlBackgroundColor)
+                
+                GeometryReader { geometry in
+                    if editorMode == .annotate {
+                        // Annotation canvas - centered with proper sizing
+                        HStack {
+                            Spacer()
+                            VStack {
+                                Spacer()
+                                AnnotationCanvasView(
+                                    annotations: $annotations,
+                                    currentAnnotation: $currentAnnotation,
+                                    tool: selectedTool,
+                                    color: annotationColor,
+                                    lineWidth: annotationLineWidth,
+                                    baseImage: applyFiltersToImage(),
+                                    onAnnotationAdded: {},
+                                    onTextRequested: { point in
+                                        textInputPosition = point
+                                        showingTextInput = true
+                                    }
+                                )
+                                .aspectRatio(applyFiltersToImage().size, contentMode: .fit)
+                                .frame(maxWidth: geometry.size.width * 0.9, maxHeight: geometry.size.height * 0.9)
+                                .border(Color.gray.opacity(0.3), width: 1)
+                                Spacer()
+                            }
+                            Spacer()
+                        }
+                        
+                        // Text input overlay
+                        if showingTextInput {
+                            VStack {
+                                Spacer()
+                                VStack(spacing: 12) {
+                                    Text("Add Text")
+                                        .font(.headline)
+                                    TextField("Enter text", text: $textInputValue)
+                                        .textFieldStyle(.roundedBorder)
+                                        .frame(width: 250)
+                                    HStack(spacing: 12) {
+                                        Button("Cancel") {
+                                            showingTextInput = false
+                                            textInputValue = ""
+                                        }
+                                        .buttonStyle(.bordered)
+                                        
+                                        Button("Add") {
+                                            addTextAnnotation()
+                                        }
+                                        .buttonStyle(.borderedProminent)
+                                    }
+                                }
+                                .padding()
+                                .background(Color(NSColor.windowBackgroundColor))
+                                .cornerRadius(8)
+                                .shadow(radius: 10)
+                                Spacer()
+                            }
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .background(Color.black.opacity(0.3))
+                        }
+                    } else {
+                        // Regular edit preview
+                        ScrollView([.horizontal, .vertical]) {
+                            Image(nsImage: applyFiltersToImage())
+                                .resizable()
+                                .aspectRatio(contentMode: .fit)
+                                .frame(maxWidth: geometry.size.width * 0.9)
+                                .scaleEffect(scale)
+                                .rotationEffect(.degrees(rotation))
+                                .scaleEffect(x: flipHorizontal ? -1 : 1, y: flipVertical ? -1 : 1)
+                                .padding()
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             
             Divider()
             
-            // Editing tools tabs
-            VStack(spacing: 0) {
-                // Tool categories
-                HStack(spacing: 4) {
-                    ToolTabButton(title: "Transform", icon: "rotate.left", isSelected: !showingFilters) {
-                        showingFilters = false
-                    }
-                    ToolTabButton(title: "Adjust", icon: "slider.horizontal.3", isSelected: showingFilters) {
-                        showingFilters = true
-                    }
-                }
-                .padding(.horizontal)
-                .padding(.top, 8)
-                
-                Divider()
-                    .padding(.top, 8)
-                
-                // Tool controls
-                if showingFilters {
-                    adjustmentControls
-                } else {
-                    transformControls
-                }
+            // Editing tools
+            if editorMode == .annotate {
+                annotationControls
+            } else {
+                editControls
             }
-            .padding(.bottom)
-            .background(Color(NSColor.controlBackgroundColor))
             
             Divider()
             
@@ -172,7 +252,6 @@ struct ImageEditorView: View {
             .padding()
             .background(Color(NSColor.controlBackgroundColor))
         }
-        .frame(width: 600, height: 700)
         .alert("Image Saved", isPresented: $showingSaveAlert) {
             Button("OK", role: .cancel) { }
         } message: {
@@ -191,6 +270,151 @@ struct ImageEditorView: View {
                 onCancel: { showingResizeSheet = false }
             )
         }
+    }
+    
+    // MARK: - Edit Controls
+    private var editControls: some View {
+        VStack(spacing: 0) {
+            // Tool categories
+            HStack(spacing: 4) {
+                ToolTabButton(title: "Transform", icon: "rotate.left", isSelected: !showingFilters) {
+                    showingFilters = false
+                }
+                ToolTabButton(title: "Adjust", icon: "slider.horizontal.3", isSelected: showingFilters) {
+                    showingFilters = true
+                }
+            }
+            .padding(.horizontal)
+            .padding(.top, 8)
+            
+            Divider()
+                .padding(.top, 8)
+            
+            // Tool controls
+            if showingFilters {
+                adjustmentControls
+            } else {
+                transformControls
+            }
+        }
+        .padding(.bottom)
+        .background(Color(NSColor.controlBackgroundColor))
+    }
+    
+    // MARK: - Annotation Controls
+    private var annotationControls: some View {
+        VStack(spacing: 12) {
+            // Drawing tools
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(AnnotationTool.allCases, id: \.self) { tool in
+                        AnnotationToolButton(
+                            tool: tool,
+                            isSelected: selectedTool == tool,
+                            action: { selectedTool = tool }
+                        )
+                    }
+                }
+                .padding(.horizontal)
+            }
+            
+            // Tool hint
+            if selectedTool == .select {
+                Text("Click to select, drag to move, Delete key to remove")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal)
+            }
+            
+            Divider()
+            
+            // Color and size controls
+            HStack(spacing: 16) {
+                // Color picker
+                HStack(spacing: 8) {
+                    Text("Color:")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                    
+                    ColorPicker("", selection: Binding(
+                        get: { Color(annotationColor) },
+                        set: { annotationColor = NSColor($0) }
+                    ))
+                    .labelsHidden()
+                    .frame(width: 40)
+                    
+                    // Common colors
+                    ForEach([NSColor.red, .systemBlue, .systemGreen, .systemYellow, .black, .white], id: \.self) { color in
+                        Button(action: { annotationColor = color }) {
+                            Circle()
+                                .fill(Color(color))
+                                .frame(width: 20, height: 20)
+                                .overlay(
+                                    Circle()
+                                        .stroke(annotationColor == color ? Color.accentColor : Color.clear, lineWidth: 2)
+                                )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                
+                Divider()
+                    .frame(height: 30)
+                
+                // Line width
+                HStack(spacing: 8) {
+                    Text("Size:")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                    
+                    Slider(value: $annotationLineWidth, in: 1...10, step: 1)
+                        .frame(width: 100)
+                    
+                    Text("\(Int(annotationLineWidth))")
+                        .font(.system(size: 11, design: .monospaced))
+                        .frame(width: 20)
+                }
+                
+                Divider()
+                    .frame(height: 30)
+                
+                // Undo
+                Button(action: undoLastAnnotation) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "arrow.uturn.backward")
+                        Text("Undo")
+                    }
+                    .font(.system(size: 11))
+                }
+                .buttonStyle(.bordered)
+                .disabled(annotations.isEmpty)
+                
+                Button(action: clearAnnotations) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "trash")
+                        Text("Clear All")
+                    }
+                    .font(.system(size: 11))
+                }
+                .buttonStyle(.bordered)
+                .foregroundColor(.red)
+                .disabled(annotations.isEmpty)
+                
+                Spacer()
+                
+                // Quick actions
+                Button(action: { saveSnapshot() }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "camera")
+                        Text("Snapshot")
+                    }
+                    .font(.system(size: 11))
+                }
+                .buttonStyle(.bordered)
+            }
+        }
+        .padding()
+        .background(Color(NSColor.controlBackgroundColor))
     }
     
     // MARK: - Transform Controls
@@ -250,6 +474,15 @@ struct ImageEditorView: View {
                     VStack(spacing: 4) {
                         Image(systemName: "crop")
                         Text("Crop 16:9")
+                            .font(.system(size: 10))
+                    }
+                }
+                .buttonStyle(.bordered)
+                
+                Button(action: { applyCrop(aspectRatio: 4/3) }) {
+                    VStack(spacing: 4) {
+                        Image(systemName: "crop")
+                        Text("Crop 4:3")
                             .font(.system(size: 10))
                     }
                 }
@@ -327,6 +560,31 @@ struct ImageEditorView: View {
                     icon: "paintpalette"
                 )
             }
+            
+            Divider()
+            
+            // Quick presets
+            HStack(spacing: 8) {
+                Text("Quick:")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                
+                Button("B&W") { applyQuickEdit(edit: .grayscale) }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                
+                Button("High Contrast") { applyQuickEdit(edit: .highContrast) }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                
+                Button("Vintage") { applyQuickEdit(edit: .vintage) }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                
+                Button("Sharpen") { applyQuickEdit(edit: .sharpen) }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+            }
         }
         .padding()
     }
@@ -342,6 +600,70 @@ struct ImageEditorView: View {
         saturation = 1.0
         selectedFilter = .none
         editedImage = originalItem.image ?? NSImage()
+        annotations.removeAll()
+    }
+    
+    private func addTextAnnotation() {
+        guard !textInputValue.isEmpty else {
+            showingTextInput = false
+            return
+        }
+        
+        let annotation = Annotation(
+            tool: .text,
+            points: [textInputPosition],
+            text: textInputValue,
+            color: annotationColor,
+            lineWidth: annotationLineWidth,
+            isFilled: false,
+            isFinalized: true
+        )
+        
+        annotations.append(annotation)
+        showingTextInput = false
+        textInputValue = ""
+    }
+    
+    private func undoLastAnnotation() {
+        guard !annotations.isEmpty else { return }
+        annotations.removeLast()
+    }
+    
+    private func clearAnnotations() {
+        annotations.removeAll()
+    }
+    
+    private func saveSnapshot() {
+        // Save current state to history
+        let snapshot = applyFiltersToImage()
+        if !annotations.isEmpty {
+            let withAnnotations = renderAnnotationsOnImage(snapshot)
+            editHistory.append(withAnnotations)
+        } else {
+            editHistory.append(snapshot)
+        }
+        historyIndex = editHistory.count - 1
+    }
+    
+    private func applyQuickEdit(edit: QuickEdit) {
+        switch edit {
+        case .grayscale:
+            saturation = 0
+        case .highContrast:
+            contrast = 1.5
+        case .vintage:
+            selectedFilter = .sepia
+            brightness = -0.1
+        case .sharpen:
+            contrast = 1.3
+        case .soften:
+            brightness = 0.1
+            saturation = 0.8
+        }
+    }
+    
+    enum QuickEdit {
+        case grayscale, highContrast, vintage, sharpen, soften
     }
     
     private func applyFiltersToImage() -> NSImage {
@@ -414,7 +736,16 @@ struct ImageEditorView: View {
     
     private func applyTransformations() -> NSImage {
         let sourceImage = applyFiltersToImage()
-        let size = sourceImage.size
+        
+        // If we have annotations, render them onto the image
+        let imageWithAnnotations: NSImage
+        if !annotations.isEmpty {
+            imageWithAnnotations = renderAnnotationsOnImage(sourceImage)
+        } else {
+            imageWithAnnotations = sourceImage
+        }
+        
+        let size = imageWithAnnotations.size
         
         // Calculate new size based on rotation
         let radians = rotation * .pi / 180
@@ -436,7 +767,7 @@ struct ImageEditorView: View {
         ctx?.scaleBy(x: flipHorizontal ? -1 : 1, y: flipVertical ? -1 : 1)
         
         // Draw image
-        sourceImage.draw(
+        imageWithAnnotations.draw(
             at: NSPoint(x: -size.width / 2, y: -size.height / 2),
             from: NSRect(origin: .zero, size: size),
             operation: .copy,
@@ -444,6 +775,177 @@ struct ImageEditorView: View {
         )
         
         return newImage
+    }
+    
+    private func renderAnnotationsOnImage(_ image: NSImage) -> NSImage {
+        let newImage = NSImage(size: image.size)
+        newImage.lockFocus()
+        
+        // Draw base image
+        image.draw(at: .zero, from: NSRect(origin: .zero, size: image.size), operation: .copy, fraction: 1.0)
+        
+        // Draw annotations (simplified rendering)
+        guard let context = NSGraphicsContext.current?.cgContext else {
+            newImage.unlockFocus()
+            return newImage
+        }
+        
+        for annotation in annotations {
+            renderAnnotation(annotation, in: context)
+        }
+        
+        newImage.unlockFocus()
+        return newImage
+    }
+    
+    private func renderAnnotation(_ annotation: Annotation, in context: CGContext) {
+        context.saveGState()
+        
+        switch annotation.tool {
+        case .draw:
+            guard annotation.points.count > 1 else { break }
+            context.setStrokeColor(annotation.color.cgColor)
+            context.setLineWidth(annotation.lineWidth)
+            context.setLineCap(.round)
+            context.setLineJoin(.round)
+            context.beginPath()
+            context.move(to: annotation.points[0])
+            for point in annotation.points.dropFirst() {
+                context.addLine(to: point)
+            }
+            context.strokePath()
+            
+        case .line:
+            guard annotation.points.count >= 2 else { break }
+            context.setStrokeColor(annotation.color.cgColor)
+            context.setLineWidth(annotation.lineWidth)
+            context.setLineCap(.round)
+            context.beginPath()
+            context.move(to: annotation.points[0])
+            context.addLine(to: annotation.points[1])
+            context.strokePath()
+            
+        case .arrow:
+            guard annotation.points.count >= 2 else { break }
+            let start = annotation.points[0]
+            let end = annotation.points[1]
+            
+            context.setStrokeColor(annotation.color.cgColor)
+            context.setLineWidth(annotation.lineWidth)
+            context.setLineCap(.round)
+            
+            // Draw line
+            context.beginPath()
+            context.move(to: start)
+            context.addLine(to: end)
+            context.strokePath()
+            
+            // Draw arrowhead
+            let angle = atan2(end.y - start.y, end.x - start.x)
+            let arrowLength: CGFloat = 15
+            let arrowAngle: CGFloat = .pi / 6
+            
+            let point1 = CGPoint(
+                x: end.x - arrowLength * cos(angle - arrowAngle),
+                y: end.y - arrowLength * sin(angle - arrowAngle)
+            )
+            let point2 = CGPoint(
+                x: end.x - arrowLength * cos(angle + arrowAngle),
+                y: end.y - arrowLength * sin(angle + arrowAngle)
+            )
+            
+            context.beginPath()
+            context.move(to: point1)
+            context.addLine(to: end)
+            context.addLine(to: point2)
+            context.strokePath()
+            
+        case .rectangle:
+            guard annotation.points.count >= 2 else { break }
+            let rect = CGRect(
+                x: min(annotation.points[0].x, annotation.points[1].x),
+                y: min(annotation.points[0].y, annotation.points[1].y),
+                width: abs(annotation.points[1].x - annotation.points[0].x),
+                height: abs(annotation.points[1].y - annotation.points[0].y)
+            )
+            
+            if annotation.isFilled {
+                context.setFillColor(annotation.color.withAlphaComponent(0.3).cgColor)
+                context.fill(rect)
+            }
+            
+            context.setStrokeColor(annotation.color.cgColor)
+            context.setLineWidth(annotation.lineWidth)
+            context.stroke(rect)
+            
+        case .circle:
+            guard annotation.points.count >= 2 else { break }
+            let rect = CGRect(
+                x: min(annotation.points[0].x, annotation.points[1].x),
+                y: min(annotation.points[0].y, annotation.points[1].y),
+                width: abs(annotation.points[1].x - annotation.points[0].x),
+                height: abs(annotation.points[1].y - annotation.points[0].y)
+            )
+            
+            if annotation.isFilled {
+                context.setFillColor(annotation.color.withAlphaComponent(0.3).cgColor)
+                context.fillEllipse(in: rect)
+            }
+            
+            context.setStrokeColor(annotation.color.cgColor)
+            context.setLineWidth(annotation.lineWidth)
+            context.strokeEllipse(in: rect)
+            
+        case .highlight:
+            guard annotation.points.count >= 2 else { break }
+            let rect = CGRect(
+                x: min(annotation.points[0].x, annotation.points[1].x),
+                y: min(annotation.points[0].y, annotation.points[1].y),
+                width: abs(annotation.points[1].x - annotation.points[0].x),
+                height: abs(annotation.points[1].y - annotation.points[0].y)
+            )
+            context.setFillColor(annotation.color.withAlphaComponent(0.4).cgColor)
+            context.fill(rect)
+            
+        case .blur:
+            guard annotation.points.count >= 2 else { break }
+            let rect = NSRect(
+                x: min(annotation.points[0].x, annotation.points[1].x),
+                y: min(annotation.points[0].y, annotation.points[1].y),
+                width: abs(annotation.points[1].x - annotation.points[0].x),
+                height: abs(annotation.points[1].y - annotation.points[0].y)
+            )
+            context.setFillColor(NSColor.black.withAlphaComponent(0.7).cgColor)
+            context.fill(rect)
+            
+        case .eraser:
+            guard annotation.points.count > 1 else { break }
+            context.setBlendMode(.clear)
+            context.setLineWidth(annotation.lineWidth * 2)
+            context.setLineCap(.round)
+            context.setLineJoin(.round)
+            context.beginPath()
+            context.move(to: annotation.points[0])
+            for point in annotation.points.dropFirst() {
+                context.addLine(to: point)
+            }
+            context.strokePath()
+            
+        case .text:
+            if let text = annotation.text, let point = annotation.points.first {
+                let attributes: [NSAttributedString.Key: Any] = [
+                    .font: NSFont.systemFont(ofSize: 16, weight: .medium),
+                    .foregroundColor: annotation.color
+                ]
+                let attributedString = NSAttributedString(string: text, attributes: attributes)
+                attributedString.draw(at: point)
+            }
+            
+        case .select:
+            break
+        }
+        
+        context.restoreGState()
     }
     
     private func applyCrop(aspectRatio: CGFloat? = nil) {
@@ -517,6 +1019,43 @@ struct ImageEditorView: View {
 }
 
 // MARK: - Supporting Views
+struct AnnotationToolButton: View {
+    let tool: AnnotationTool
+    let isSelected: Bool
+    let action: () -> Void
+    
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 4) {
+                Image(systemName: iconName(for: tool))
+                    .font(.system(size: 14))
+                Text(tool.rawValue)
+                    .font(.system(size: 9))
+            }
+            .frame(width: 60, height: 50)
+            .background(isSelected ? Color.accentColor : Color.secondary.opacity(0.2))
+            .foregroundColor(isSelected ? .white : .primary)
+            .cornerRadius(6)
+        }
+        .buttonStyle(.plain)
+    }
+    
+    private func iconName(for tool: AnnotationTool) -> String {
+        switch tool {
+        case .select: return "arrow.up.left.and.arrow.down.right"
+        case .draw: return "pencil"
+        case .text: return "textformat"
+        case .arrow: return "arrow.right"
+        case .rectangle: return "rectangle"
+        case .circle: return "circle"
+        case .line: return "line.diagonal"
+        case .highlight: return "highlighter"
+        case .blur: return "eye.slash"
+        case .eraser: return "eraser"
+        }
+    }
+}
+
 struct ToolTabButton: View {
     let title: String
     let icon: String
