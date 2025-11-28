@@ -12,9 +12,18 @@ class ClipboardManager: ObservableObject {
     @Published var favorites: [ClipboardItem] = []
     @Published var searchText: String = ""
     
+    /// AI-categorized items cache
+    @Published var categoryCache: [UUID: ClipboardCategory] = [:]
+    
+    /// Context-aware suggestions
+    @Published var suggestions: [ClipboardSuggestion] = []
+    
     private var pasteboard = NSPasteboard.general
     private var changeCount: Int = 0
     private var timer: Timer?
+    
+    // AI Engine reference
+    private var aiEngine: AIClipboardEngine { AIClipboardEngine.shared }
     
     // Settings
     var maxHistorySize: Int = 100
@@ -29,6 +38,11 @@ class ClipboardManager: ObservableObject {
     init() {
         loadFromDisk()
         startMonitoring()
+        
+        // Categorize existing items in background
+        Task { @MainActor in
+            await categorizeBatch()
+        }
     }
     
     func startMonitoring() {
@@ -75,17 +89,40 @@ class ClipboardManager: ObservableObject {
             return
         }
         
-        // Determine clipboard type
-        let type = determineType(content: content)
-        let newItem = ClipboardItem(content: content, type: type)
-        
-        DispatchQueue.main.async {
+        // Check usage limits
+        Task { @MainActor in
+            let checker = UsageLimitChecker()
+            let result = checker.checkAddClip()
+            guard result.isAllowed else {
+                print("⚠️ Clips limit reached: \(result.message)")
+                return
+            }
+            
+            // Determine clipboard type
+            let type = determineType(content: content)
+            let newItem = ClipboardItem(content: content, type: type)
+            
             self.items.insert(newItem, at: 0)
             
             // Limit history size
             if self.items.count > self.maxHistorySize {
                 self.items = Array(self.items.prefix(self.maxHistorySize))
             }
+            
+            // AI categorization in background
+            let category = self.aiEngine.categorize(content)
+            self.categoryCache[newItem.id] = category
+            
+            // Track analytics
+            Task {
+                await AnalyticsManager.shared.trackClipboardCopy(category: category.rawValue)
+            }
+            
+            // Update subscription usage
+            SubscriptionManager.shared.updateClipsCount(self.items.count)
+            
+            // Update suggestions
+            self.updateSuggestions()
             
             self.saveToDisk()
         }
@@ -158,6 +195,46 @@ class ClipboardManager: ObservableObject {
             return items
         }
         return items.filter { $0.content.localizedCaseInsensitiveContains(searchText) }
+    }
+    
+    // MARK: - AI Features
+    
+    /// Get category for an item
+    func getCategory(for item: ClipboardItem) -> ClipboardCategory {
+        if let cached = categoryCache[item.id] {
+            return cached
+        }
+        let category = aiEngine.categorize(item.content)
+        categoryCache[item.id] = category
+        return category
+    }
+    
+    /// Categorize all items in batch
+    private func categorizeBatch() async {
+        let categories = aiEngine.categorizeBatch(items)
+        for (id, category) in categories {
+            categoryCache[id] = category
+        }
+    }
+    
+    /// Update context-aware suggestions
+    func updateSuggestions() {
+        suggestions = aiEngine.getSuggestions(from: items, limit: 5)
+    }
+    
+    /// Apply text transformation
+    func applyTransformation(_ transformation: TextTransformation, to item: ClipboardItem) -> String {
+        return aiEngine.textTransformer.transform(item.content, using: transformation)
+    }
+    
+    /// Check if item contains sensitive data
+    func isSensitive(_ item: ClipboardItem) -> Bool {
+        return SecurityManager.shared.detectSensitiveContent(item.content) != nil
+    }
+    
+    /// Get sensitive data type for item
+    func getSensitiveType(_ item: ClipboardItem) -> SensitiveDataType? {
+        return SecurityManager.shared.detectSensitiveContent(item.content)
     }
     
     // MARK: - Persistence

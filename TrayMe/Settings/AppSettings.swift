@@ -30,6 +30,14 @@ class AppSettings: ObservableObject {
         didSet { save() }
     }
     
+    // AI Features
+    @Published var aiCategorizationEnabled = true {
+        didSet { save() }
+    }
+    @Published var aiSuggestionsEnabled = true {
+        didSet { save() }
+    }
+    
     @Published var filesMaxStorage = 50 {
         didSet { save() }
     }
@@ -52,6 +60,16 @@ class AppSettings: ObservableObject {
     }
     @Published var defaultTab = "clipboard" {
         didSet { save() }
+    }
+    
+    // Analytics
+    @Published var analyticsEnabled = true {
+        didSet { 
+            save()
+            Task {
+                await AnalyticsManager.shared.setEnabled(analyticsEnabled)
+            }
+        }
     }
     
     private var isLoading = false
@@ -80,6 +98,12 @@ class AppSettings: ObservableObject {
         if let saved = UserDefaults.standard.object(forKey: "clipboardEnabled") as? Bool {
             clipboardEnabled = saved
         }
+        if let saved = UserDefaults.standard.object(forKey: "aiCategorizationEnabled") as? Bool {
+            aiCategorizationEnabled = saved
+        }
+        if let saved = UserDefaults.standard.object(forKey: "aiSuggestionsEnabled") as? Bool {
+            aiSuggestionsEnabled = saved
+        }
         if let saved = UserDefaults.standard.object(forKey: "filesMaxStorage") as? Int {
             filesMaxStorage = saved
         }
@@ -101,6 +125,9 @@ class AppSettings: ObservableObject {
         if let saved = UserDefaults.standard.string(forKey: "defaultTab") {
             defaultTab = saved
         }
+        if let saved = UserDefaults.standard.object(forKey: "analyticsEnabled") as? Bool {
+            analyticsEnabled = saved
+        }
         isLoading = false
     }
     
@@ -115,6 +142,8 @@ class AppSettings: ObservableObject {
         UserDefaults.standard.set(clipboardMaxHistory, forKey: "clipboardMaxHistory")
         UserDefaults.standard.set(ignorePasswordManagers, forKey: "ignorePasswordManagers")
         UserDefaults.standard.set(clipboardEnabled, forKey: "clipboardEnabled")
+        UserDefaults.standard.set(aiCategorizationEnabled, forKey: "aiCategorizationEnabled")
+        UserDefaults.standard.set(aiSuggestionsEnabled, forKey: "aiSuggestionsEnabled")
         UserDefaults.standard.set(filesMaxStorage, forKey: "filesMaxStorage")
         UserDefaults.standard.set(filesEnabled, forKey: "filesEnabled")
         UserDefaults.standard.set(notesEnabled, forKey: "notesEnabled")
@@ -122,5 +151,6 @@ class AppSettings: ObservableObject {
         UserDefaults.standard.set(panelWidth, forKey: "panelWidth")
         UserDefaults.standard.set(panelHeight, forKey: "panelHeight")
         UserDefaults.standard.set(defaultTab, forKey: "defaultTab")
+        UserDefaults.standard.set(analyticsEnabled, forKey: "analyticsEnabled")
     }
 }
