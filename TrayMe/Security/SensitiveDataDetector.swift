@@ -202,18 +202,33 @@ class SensitiveDataDetector: ObservableObject {
     /// - Parameter text: Text to mask
     /// - Returns: Text with sensitive data masked
     func mask(_ text: String) -> String {
-        var result = text
         let types = detectAll(text)
+        
+        // Collect all match ranges with their lengths
+        var matchRanges: [(range: Range<String.Index>, length: Int)] = []
         
         for type in types {
             let matches = findMatches(text, for: type)
-            
-            // Process in reverse order to maintain indices
-            for match in matches.reversed() {
+            for match in matches {
                 let length = text.distance(from: match.lowerBound, to: match.upperBound)
-                let masked = String(repeating: "•", count: min(length, 20))
-                result.replaceSubrange(match, with: masked)
+                matchRanges.append((match, length))
             }
+        }
+        
+        // Sort by start position in descending order to process from end to beginning
+        matchRanges.sort { text.distance(from: text.startIndex, to: $0.range.lowerBound) >
+                          text.distance(from: text.startIndex, to: $1.range.lowerBound) }
+        
+        var result = text
+        
+        // Process matches from end to beginning to maintain valid indices
+        for (range, length) in matchRanges {
+            let masked = String(repeating: "•", count: min(length, 20))
+            // Recalculate the range offset based on current result string
+            let offset = text.distance(from: text.startIndex, to: range.lowerBound)
+            let startIdx = result.index(result.startIndex, offsetBy: offset)
+            let endIdx = result.index(startIdx, offsetBy: length)
+            result.replaceSubrange(startIdx..<endIdx, with: masked)
         }
         
         return result

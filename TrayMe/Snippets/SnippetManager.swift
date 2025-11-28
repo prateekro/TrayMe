@@ -395,6 +395,9 @@ class SnippetManager: ObservableObject {
     private func typeText(_ text: String) {
         // Use clipboard to paste text (faster and more reliable than simulating keystrokes)
         let pasteboard = NSPasteboard.general
+        
+        // Store the original change count to detect if clipboard was modified during paste
+        let originalChangeCount = pasteboard.changeCount
         let originalContent = pasteboard.string(forType: .string)
         
         pasteboard.clearContents()
@@ -425,11 +428,17 @@ class SnippetManager: ObservableObject {
             cmdUp.post(tap: .cghidEventTap)
         }
         
-        // Restore original clipboard content after a delay
+        // Restore original clipboard content after a delay, but only if clipboard
+        // hasn't been modified by the user in the meantime
         if let original = originalContent {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                pasteboard.clearContents()
-                pasteboard.setString(original, forType: .string)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                // Check if clipboard changed since we started (user might have copied something new)
+                // We add 1 to account for our own paste operation
+                if pasteboard.changeCount <= originalChangeCount + 1 {
+                    pasteboard.clearContents()
+                    pasteboard.setString(original, forType: .string)
+                }
+                // If changeCount is higher, user copied something new, so don't restore
             }
         }
     }

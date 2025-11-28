@@ -339,22 +339,65 @@ class AIClipboardEngine: ObservableObject {
         }
     }
     
+    // MARK: - Scoring Constants
+    
+    /// Weight for recency in suggestion scoring (how recently the item was used)
+    private static let recencyWeight: Double = 0.4
+    
+    /// Weight for frequency in suggestion scoring (favorites and usage count)
+    private static let frequencyWeight: Double = 0.3
+    
+    /// Weight for context match in suggestion scoring (how well it matches current app)
+    private static let contextWeight: Double = 0.3
+    
+    /// Number of hours over which recency score decays from 1.0 to 0.0
+    private static let recencyDecayHours: Double = 24.0
+    
+    /// Threshold for "recently used" classification
+    private static let recentlyUsedThreshold: Double = 0.3
+    
+    /// Threshold for "good context match" classification
+    private static let contextMatchThreshold: Double = 0.5
+    
+    /// Frequency score for favorited items
+    private static let favoriteFrequencyScore: Double = 0.3
+    
+    /// Frequency score for non-favorited items
+    private static let normalFrequencyScore: Double = 0.15
+    
+    // MARK: - Context Match Scores
+    
+    /// Perfect match: category exactly matches app context (e.g., code in IDE)
+    private static let perfectContextMatch: Double = 1.0
+    
+    /// Good match: category is highly relevant to app context
+    private static let goodContextMatch: Double = 0.8
+    
+    /// Moderate match: category is somewhat relevant
+    private static let moderateContextMatch: Double = 0.5
+    
+    /// Weak match: category has minor relevance
+    private static let weakContextMatch: Double = 0.3
+    
+    /// Default match: base score for any content in any context
+    private static let defaultContextMatch: Double = 0.2
+    
     /// Calculate suggestion score for an item
     /// Weighting: recency (40%), frequency (30%), context match (30%)
     private func calculateScore(item: ClipboardItem, appCategory: ContextAnalyzer.AppCategory, currentApp: String?) -> (Double, String) {
         var score: Double = 0.0
         var reasons: [String] = []
         
-        // Recency score (40%)
+        // Recency score (40%) - decays over 24 hours
         let hoursSinceUse = Date().timeIntervalSince(item.timestamp) / 3600
-        let recencyScore = max(0, 1.0 - (hoursSinceUse / 24.0)) * 0.4 // Decay over 24 hours
+        let recencyScore = max(0, 1.0 - (hoursSinceUse / Self.recencyDecayHours)) * Self.recencyWeight
         score += recencyScore
-        if recencyScore > 0.3 {
+        if recencyScore > Self.recentlyUsedThreshold {
             reasons.append("Recently used")
         }
         
         // Frequency score (30%) - favorites get boost
-        let frequencyScore: Double = item.isFavorite ? 0.3 : 0.15
+        let frequencyScore: Double = item.isFavorite ? Self.favoriteFrequencyScore : Self.normalFrequencyScore
         score += frequencyScore
         if item.isFavorite {
             reasons.append("Favorite")
@@ -363,8 +406,8 @@ class AIClipboardEngine: ObservableObject {
         // Context match score (30%)
         let itemCategory = categorize(item.content)
         let contextScore = calculateContextMatch(itemCategory: itemCategory, appCategory: appCategory)
-        score += contextScore * 0.3
-        if contextScore > 0.5 {
+        score += contextScore * Self.contextWeight
+        if contextScore > Self.contextMatchThreshold {
             reasons.append("Matches \(appCategory.rawValue) context")
         }
         
@@ -376,19 +419,19 @@ class AIClipboardEngine: ObservableObject {
     private func calculateContextMatch(itemCategory: ClipboardCategory, appCategory: ContextAnalyzer.AppCategory) -> Double {
         switch (itemCategory, appCategory) {
         case (.code, .development):
-            return 1.0
+            return Self.perfectContextMatch
         case (.url, .browser):
-            return 1.0
+            return Self.perfectContextMatch
         case (.email, .email):
-            return 1.0
+            return Self.perfectContextMatch
         case (.markdown, .writing):
-            return 0.8
+            return Self.goodContextMatch
         case (.code, .writing):
-            return 0.3
+            return Self.weakContextMatch
         case (.plainText, _):
-            return 0.5 // Plain text is moderately useful everywhere
+            return Self.moderateContextMatch // Plain text is moderately useful everywhere
         default:
-            return 0.2
+            return Self.defaultContextMatch
         }
     }
     

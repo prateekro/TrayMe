@@ -89,19 +89,19 @@ class ClipboardManager: ObservableObject {
             return
         }
         
-        // Check usage limits
-        Task { @MainActor in
-            let checker = UsageLimitChecker()
-            let result = checker.checkAddClip()
-            guard result.isAllowed else {
-                print("⚠️ Clips limit reached: \(result.message)")
-                return
-            }
-            
-            // Determine clipboard type
-            let type = determineType(content: content)
-            let newItem = ClipboardItem(content: content, type: type)
-            
+        // Check usage limits on main thread
+        let checker = UsageLimitChecker()
+        let result = checker.checkAddClip()
+        guard result.isAllowed else {
+            print("⚠️ Clips limit reached: \(result.message)")
+            return
+        }
+        
+        // Determine clipboard type
+        let type = determineType(content: content)
+        let newItem = ClipboardItem(content: content, type: type)
+        
+        DispatchQueue.main.async {
             self.items.insert(newItem, at: 0)
             
             // Limit history size
@@ -109,22 +109,28 @@ class ClipboardManager: ObservableObject {
                 self.items = Array(self.items.prefix(self.maxHistorySize))
             }
             
-            // AI categorization in background
-            let category = self.aiEngine.categorize(content)
-            self.categoryCache[newItem.id] = category
-            
-            // Track analytics
-            Task {
-                await AnalyticsManager.shared.trackClipboardCopy(category: category.rawValue)
+            // Update subscription usage on main thread
+            Task { @MainActor in
+                SubscriptionManager.shared.updateClipsCount(self.items.count)
             }
-            
-            // Update subscription usage
-            SubscriptionManager.shared.updateClipsCount(self.items.count)
             
             // Update suggestions
             self.updateSuggestions()
             
             self.saveToDisk()
+        }
+        
+        // AI categorization in background (non-blocking)
+        Task.detached(priority: .utility) { [weak self] in
+            guard let self = self else { return }
+            let category = await MainActor.run { self.aiEngine.categorize(content) }
+            
+            await MainActor.run {
+                self.categoryCache[newItem.id] = category
+            }
+            
+            // Track analytics in background
+            await AnalyticsManager.shared.trackClipboardCopy(category: category.rawValue)
         }
     }
     

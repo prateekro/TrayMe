@@ -7,6 +7,10 @@
 import Foundation
 import SQLite3
 
+/// SQLITE_TRANSIENT constant for SQLite parameter binding
+/// This tells SQLite to make its own copy of the data
+private let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+
 /// SQLite database manager with high-performance configuration
 actor DatabaseManager {
     /// Shared instance for app-wide database access
@@ -110,14 +114,16 @@ actor DatabaseManager {
             case let value as Double:
                 sqlite3_bind_double(statement, idx, value)
             case let value as String:
-                sqlite3_bind_text(statement, idx, value, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+                // SQLITE_TRANSIENT (-1) tells SQLite to make its own copy of the string
+                sqlite3_bind_text(statement, idx, value, -1, SQLITE_TRANSIENT)
             case let value as Data:
                 value.withUnsafeBytes { bytes in
-                    sqlite3_bind_blob(statement, idx, bytes.baseAddress, Int32(value.count), unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+                    // SQLITE_TRANSIENT (-1) tells SQLite to make its own copy of the blob
+                    sqlite3_bind_blob(statement, idx, bytes.baseAddress, Int32(value.count), SQLITE_TRANSIENT)
                 }
             case let value as Date:
                 let iso8601 = ISO8601DateFormatter().string(from: value)
-                sqlite3_bind_text(statement, idx, iso8601, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+                sqlite3_bind_text(statement, idx, iso8601, -1, SQLITE_TRANSIENT)
             default:
                 throw DatabaseError.unsupportedType("\(type(of: param))")
             }
@@ -158,14 +164,14 @@ actor DatabaseManager {
             case let value as Double:
                 sqlite3_bind_double(statement, idx, value)
             case let value as String:
-                sqlite3_bind_text(statement, idx, value, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+                sqlite3_bind_text(statement, idx, value, -1, SQLITE_TRANSIENT)
             case let value as Data:
                 value.withUnsafeBytes { bytes in
-                    sqlite3_bind_blob(statement, idx, bytes.baseAddress, Int32(value.count), unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+                    sqlite3_bind_blob(statement, idx, bytes.baseAddress, Int32(value.count), SQLITE_TRANSIENT)
                 }
             case let value as Date:
                 let iso8601 = ISO8601DateFormatter().string(from: value)
-                sqlite3_bind_text(statement, idx, iso8601, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+                sqlite3_bind_text(statement, idx, iso8601, -1, SQLITE_TRANSIENT)
             default:
                 throw DatabaseError.unsupportedType("\(type(of: param))")
             }
