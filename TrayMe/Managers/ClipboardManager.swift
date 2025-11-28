@@ -12,9 +12,18 @@ class ClipboardManager: ObservableObject {
     @Published var favorites: [ClipboardItem] = []
     @Published var searchText: String = ""
     
+    /// AI-categorized items cache
+    @Published var categoryCache: [UUID: ClipboardCategory] = [:]
+    
+    /// Context-aware suggestions
+    @Published var suggestions: [ClipboardSuggestion] = []
+    
     private var pasteboard = NSPasteboard.general
     private var changeCount: Int = 0
     private var timer: Timer?
+    
+    // AI Engine reference
+    private var aiEngine: AIClipboardEngine { AIClipboardEngine.shared }
     
     // Settings
     var maxHistorySize: Int = 100
@@ -29,6 +38,11 @@ class ClipboardManager: ObservableObject {
     init() {
         loadFromDisk()
         startMonitoring()
+        
+        // Categorize existing items in background
+        Task { @MainActor in
+            await categorizeBatch()
+        }
     }
     
     func startMonitoring() {
@@ -75,6 +89,14 @@ class ClipboardManager: ObservableObject {
             return
         }
         
+        // Check usage limits on main thread
+        let checker = UsageLimitChecker()
+        let result = checker.checkAddClip()
+        guard result.isAllowed else {
+            print("⚠️ Clips limit reached: \(result.message)")
+            return
+        }
+        
         // Determine clipboard type
         let type = determineType(content: content)
         let newItem = ClipboardItem(content: content, type: type)
@@ -87,7 +109,28 @@ class ClipboardManager: ObservableObject {
                 self.items = Array(self.items.prefix(self.maxHistorySize))
             }
             
+            // Update subscription usage on main thread
+            Task { @MainActor in
+                SubscriptionManager.shared.updateClipsCount(self.items.count)
+            }
+            
+            // Update suggestions
+            self.updateSuggestions()
+            
             self.saveToDisk()
+        }
+        
+        // AI categorization in background (non-blocking)
+        Task.detached(priority: .utility) { [weak self] in
+            guard let self = self else { return }
+            let category = await MainActor.run { self.aiEngine.categorize(content) }
+            
+            await MainActor.run {
+                self.categoryCache[newItem.id] = category
+            }
+            
+            // Track analytics in background
+            await AnalyticsManager.shared.trackClipboardCopy(category: category.rawValue)
         }
     }
     
@@ -158,6 +201,46 @@ class ClipboardManager: ObservableObject {
             return items
         }
         return items.filter { $0.content.localizedCaseInsensitiveContains(searchText) }
+    }
+    
+    // MARK: - AI Features
+    
+    /// Get category for an item
+    func getCategory(for item: ClipboardItem) -> ClipboardCategory {
+        if let cached = categoryCache[item.id] {
+            return cached
+        }
+        let category = aiEngine.categorize(item.content)
+        categoryCache[item.id] = category
+        return category
+    }
+    
+    /// Categorize all items in batch
+    private func categorizeBatch() async {
+        let categories = aiEngine.categorizeBatch(items)
+        for (id, category) in categories {
+            categoryCache[id] = category
+        }
+    }
+    
+    /// Update context-aware suggestions
+    func updateSuggestions() {
+        suggestions = aiEngine.getSuggestions(from: items, limit: 5)
+    }
+    
+    /// Apply text transformation
+    func applyTransformation(_ transformation: TextTransformation, to item: ClipboardItem) -> String {
+        return aiEngine.textTransformer.transform(item.content, using: transformation)
+    }
+    
+    /// Check if item contains sensitive data
+    func isSensitive(_ item: ClipboardItem) -> Bool {
+        return SecurityManager.shared.detectSensitiveContent(item.content) != nil
+    }
+    
+    /// Get sensitive data type for item
+    func getSensitiveType(_ item: ClipboardItem) -> SensitiveDataType? {
+        return SecurityManager.shared.detectSensitiveContent(item.content)
     }
     
     // MARK: - Persistence

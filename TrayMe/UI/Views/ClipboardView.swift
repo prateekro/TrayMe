@@ -144,26 +144,68 @@ struct ClipboardView: View {
 
 struct ClipboardItemRow: View {
     @EnvironmentObject var manager: ClipboardManager
+    @StateObject private var securityManager = SecurityManager.shared
     let item: ClipboardItem
     let isHovered: Bool
     let isSelected: Bool
     
+    private var category: ClipboardCategory {
+        manager.getCategory(for: item)
+    }
+    
+    private var isSensitive: Bool {
+        manager.isSensitive(item)
+    }
+    
+    private var shouldBlur: Bool {
+        isSensitive && securityManager.sensitiveItemsLocked
+    }
+    
     var body: some View {
         HStack(spacing: 12) {
-            // Type icon
-            Image(systemName: iconForType(item.type))
-                .foregroundColor(colorForType(item.type))
-                .frame(width: 20)
+            // Type icon with category
+            ZStack {
+                Image(systemName: category.icon)
+                    .foregroundColor(colorForCategory(category))
+                    .frame(width: 20)
+                
+                // Sensitive indicator
+                if isSensitive {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 8))
+                        .foregroundColor(.orange)
+                        .offset(x: 10, y: -8)
+                }
+            }
             
             // Content
             VStack(alignment: .leading, spacing: 2) {
-                Text(item.displayContent)
-                    .font(.system(size: 13))
-                    .lineLimit(2)
+                Group {
+                    if shouldBlur {
+                        Text(String(repeating: "•", count: min(item.displayContent.count, 20)))
+                            .font(.system(size: 13))
+                    } else {
+                        Text(item.displayContent)
+                            .font(.system(size: 13))
+                            .lineLimit(2)
+                    }
+                }
+                .blur(radius: shouldBlur ? 4 : 0)
                 
-                Text(item.timeAgo)
-                    .font(.system(size: 10))
-                    .foregroundColor(.secondary)
+                HStack(spacing: 4) {
+                    Text(item.timeAgo)
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary)
+                    
+                    // Category badge
+                    Text(category.displayName)
+                        .font(.system(size: 8))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(colorForCategory(category))
+                        .cornerRadius(3)
+                }
             }
             
             Spacer()
@@ -171,6 +213,20 @@ struct ClipboardItemRow: View {
             // Actions (visible on hover)
             if isHovered {
                 HStack(spacing: 8) {
+                    // Unlock button for sensitive content
+                    if isSensitive && shouldBlur {
+                        Button(action: {
+                            Task {
+                                await securityManager.authenticateForSensitiveContent()
+                            }
+                        }) {
+                            Image(systemName: "lock.open")
+                                .foregroundColor(.orange)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Unlock to view")
+                    }
+                    
                     Button(action: {
                         manager.toggleFavorite(item)
                     }) {
@@ -204,6 +260,20 @@ struct ClipboardItemRow: View {
                 .fill(isSelected ? Color.accentColor.opacity(0.2) : 
                      (isHovered ? Color.accentColor.opacity(0.1) : Color.clear))
         )
+    }
+    
+    func colorForCategory(_ category: ClipboardCategory) -> Color {
+        switch category {
+        case .code: return .purple
+        case .url: return .blue
+        case .email: return .cyan
+        case .address: return .green
+        case .phone: return .teal
+        case .credential: return .red
+        case .json: return .orange
+        case .markdown: return .pink
+        case .plainText: return .gray
+        }
     }
     
     func iconForType(_ type: ClipboardItem.ClipboardType) -> String {
