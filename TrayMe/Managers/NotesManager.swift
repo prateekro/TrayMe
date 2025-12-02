@@ -171,12 +171,9 @@ class NotesManager: ObservableObject {
         do {
             let data = try encoder.encode(notes)
             try data.write(to: saveURL, options: .atomic)
-            // Note: Can't use logger in deinit as it may have been deinitialized
         } catch {
-            // Best effort save - can't log in deinit
-            #if DEBUG
-            print("NotesManager deinit: Failed to save notes - \(error.localizedDescription)")
-            #endif
+            // Use NSLog since Logger may not be available in deinit
+            NSLog("NotesManager deinit: Failed to save notes - %@", error.localizedDescription)
         }
     }
 }

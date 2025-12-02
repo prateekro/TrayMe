@@ -317,12 +317,9 @@ class ClipboardManager: ObservableObject {
         do {
             let data = try encoder.encode(items)
             try data.write(to: saveURL, options: .atomic)
-            // Note: Can't use logger in deinit as it may have been deinitialized
         } catch {
-            // Best effort save - can't log in deinit
-            #if DEBUG
-            print("ClipboardManager deinit: Failed to save clipboard - \(error.localizedDescription)")
-            #endif
+            // Use NSLog since Logger may not be available in deinit
+            NSLog("ClipboardManager deinit: Failed to save clipboard - %@", error.localizedDescription)
         }
         
         stopMonitoring()

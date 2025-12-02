@@ -563,12 +563,9 @@ class FilesManager: ObservableObject {
         do {
             let data = try encoder.encode(files)
             try data.write(to: saveURL, options: .atomic)
-            // Note: Can't use logger in deinit as it may have been deinitialized
         } catch {
-            // Best effort save - can't log in deinit
-            #if DEBUG
-            print("FilesManager deinit: Failed to save files - \(error.localizedDescription)")
-            #endif
+            // Use NSLog since Logger may not be available in deinit
+            NSLog("FilesManager deinit: Failed to save files - %@", error.localizedDescription)
         }
     }
 }
