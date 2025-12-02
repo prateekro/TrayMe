@@ -5,6 +5,10 @@
 
 import SwiftUI
 import AppKit
+import os.log
+
+/// Private logger for MainPanel
+private let logger = Logger(subsystem: "com.trayme.TrayMe", category: "MainPanel")
 
 class MainPanel: NSPanel {
     private var hostingView: NSView?
@@ -30,7 +34,7 @@ class MainPanel: NSPanel {
          notesManager: NotesManager,
          appSettings: AppSettings) {
         
-        print("📦 Creating MainPanel...")
+        logger.debug("Creating MainPanel...")
         
         // Store managers
         self.clipboardManager = clipboardManager
@@ -46,7 +50,7 @@ class MainPanel: NSPanel {
             defer: false
         )
         
-        print("📦 Panel initialized")
+        logger.debug("Panel initialized")
         
         // Panel settings
         self.level = .floating
@@ -63,12 +67,12 @@ class MainPanel: NSPanel {
         self.standardWindowButton(.miniaturizeButton)?.isHidden = true
         self.standardWindowButton(.zoomButton)?.isHidden = true
         
-        print("📦 Panel settings applied")
+        logger.debug("Panel settings applied")
         
         // Position at top center of screen
         positionAtTopOfScreen()
         
-        print("📦 Panel positioned")
+        logger.debug("Panel positioned")
         
         // Setup click outside to close
         setupClickOutsideMonitor()
@@ -85,10 +89,10 @@ class MainPanel: NSPanel {
         // Defer content setup to avoid layout recursion
         DispatchQueue.main.async { [weak self] in
             self?.setupContent()
-            print("📦 Content setup complete")
+            logger.debug("Content setup complete")
         }
         
-        print("✅ MainPanel created successfully")
+        logger.info("MainPanel created successfully")
     }
     
     // Override to allow panel to become key window for text editing
@@ -107,7 +111,7 @@ class MainPanel: NSPanel {
             
             // Don't close if we're dragging
             if self.isDragging {
-                print("👆 Click detected but dragging - ignoring")
+                logger.debug("Click detected but dragging - ignoring")
                 return
             }
             
@@ -122,16 +126,16 @@ class MainPanel: NSPanel {
                     
                     // Double-check we're not dragging
                     if !self.isDragging && self.isVisible {
-                        print("👆 Click outside panel - closing")
+                        logger.debug("Click outside panel - closing")
                         self.hide()
                     } else {
-                        print("👆 Click was start of drag - keeping panel open")
+                        logger.debug("Click was start of drag - keeping panel open")
                     }
                 }
             }
         }
         
-        print("✅ Click outside monitor setup")
+        logger.debug("Click outside monitor setup")
     }
     
     func setupScrollOutsideMonitor() {
@@ -148,7 +152,7 @@ class MainPanel: NSPanel {
                 let delta = event.scrollingDeltaY
                 
                 if delta < -5 { // Small threshold to avoid accidental closes
-                    print("📜 Scroll down outside panel - closing")
+                    logger.debug("Scroll down outside panel - closing")
                     self.hide()
                 }
             }
@@ -169,13 +173,13 @@ class MainPanel: NSPanel {
                 let delta = event.scrollingDeltaY
                 
                 if delta < -5 { // Small threshold to avoid accidental closes
-                    print("📜 Scroll down outside panel (global) - closing")
+                    logger.debug("Scroll down outside panel (global) - closing")
                     self.hide()
                 }
             }
         }
         
-        print("✅ Scroll outside monitor setup (local + global)")
+        logger.debug("Scroll outside monitor setup (local + global)")
     }
     
     func setupDragMonitor() {
@@ -185,7 +189,7 @@ class MainPanel: NSPanel {
             
             // If we detect a drag while panel is visible, set dragging state
             if !self.isDragging {
-                print("🎯 Drag detected - preventing panel close")
+                logger.debug("Drag detected - preventing panel close")
                 self.isDragging = true
             }
         }
@@ -198,16 +202,16 @@ class MainPanel: NSPanel {
                 // Delay reset to ensure drop completes
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
                     self.isDragging = false
-                    print("🎯 Drag ended - re-enabling panel close")
+                    logger.debug("Drag ended - re-enabling panel close")
                 }
             }
         }
         
-        print("✅ Drag monitor setup")
+        logger.debug("Drag monitor setup")
     }
     
     private func setupContent() {
-        print("🎨 Setting up SwiftUI content...")
+        logger.debug("Setting up SwiftUI content...")
         
         // Create MainPanelView with shared managers
         let contentView = MainPanelView()
@@ -235,7 +239,7 @@ class MainPanel: NSPanel {
         
         self.hostingView = hosting
         
-        print("🎨 SwiftUI content added")
+        logger.debug("SwiftUI content added")
     }
     
     func positionAtTopOfScreen() {
@@ -289,11 +293,12 @@ class MainPanel: NSPanel {
             context.duration = 0.3
             context.timingFunction = CAMediaTimingFunction(name: .easeOut)
             self.animator().setFrame(NSRect(x: currentFrame.origin.x, y: targetY, width: panelWidth, height: panelHeight), display: true)
-        } completionHandler: {
+        } completionHandler: { [weak self] in
+            guard let self = self else { return }
             // After animation, focus notes if not dragging files
-            print("🎬 Animation complete. isDragging: \(self.isDragging)")
+            logger.debug("Animation complete. isDragging: \(self.isDragging)")
             if !self.isDragging {
-                print("🔔 Posting FocusNotes notification")
+                logger.debug("Posting FocusNotes notification")
                 NotificationCenter.default.post(name: .focusNotes, object: nil)
             }
         }
@@ -308,7 +313,7 @@ class MainPanel: NSPanel {
     
     func setDragging(_ dragging: Bool) {
         isDragging = dragging
-        print("🎯 Dragging state: \(dragging)")
+        logger.debug("Dragging state: \(dragging)")
     }
     
     func hide() {

@@ -5,6 +5,10 @@
 
 import Foundation
 import AppKit
+import os.log
+
+/// Private logger for FileItem
+private let logger = Logger(subsystem: "com.trayme.TrayMe", category: "FileItem")
 
 struct FileItem: Identifiable, Codable {
     let id: UUID
@@ -42,7 +46,7 @@ struct FileItem: Identifiable, Codable {
     
     // Helper to populate bookmark data asynchronously (only for referenced files)
     nonisolated mutating func populateMetadata() {
-        print("🔖 populateMetadata called for: \(url.lastPathComponent)")
+        logger.debug("populateMetadata called for: \(self.url.lastPathComponent)")
         
         // Create security-scoped bookmark for referenced files
         do {
@@ -51,10 +55,9 @@ struct FileItem: Identifiable, Codable {
                 includingResourceValuesForKeys: nil,
                 relativeTo: nil
             )
-            print("✅ Bookmark created successfully for: \(url.lastPathComponent)")
-            print("✅ Bookmark data size: \(bookmarkData?.count ?? 0) bytes")
+            logger.debug("Bookmark created successfully for: \(self.url.lastPathComponent) (\(self.bookmarkData?.count ?? 0) bytes)")
         } catch {
-            print("❌ Failed to create bookmark for \(url.lastPathComponent): \(error.localizedDescription)")
+            logger.error("Failed to create bookmark for \(self.url.lastPathComponent): \(error.localizedDescription)")
             self.bookmarkData = nil
         }
     }
@@ -80,11 +83,11 @@ struct FileItem: Identifiable, Codable {
     // Check if referenced file still exists
     func fileExists() -> Bool {
         guard let url = resolvedURL() else {
-            print("❌ fileExists: Could not resolve URL for \(name)")
+            logger.warning("fileExists: Could not resolve URL for \(self.name)")
             return false
         }
         let exists = FileManager.default.fileExists(atPath: url.path)
-        print("📁 fileExists check for \(name): \(exists) at \(url.path)")
+        logger.debug("fileExists check for \(self.name): \(exists)")
         return exists
     }
     

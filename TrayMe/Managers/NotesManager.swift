@@ -5,11 +5,19 @@
 
 import SwiftUI
 import Combine
+import os.log
+
+/// Private logger for NotesManager
+private let logger = Logger(subsystem: "com.trayme.TrayMe", category: "NotesManager")
 
 class NotesManager: ObservableObject {
     @Published var notes: [Note] = []
     @Published var searchText: String = ""
     @Published var selectedNote: Note?
+    
+    // Debounced save to prevent excessive disk writes
+    private var saveWorkItem: DispatchWorkItem?
+    private let saveDebounceInterval: TimeInterval = 0.5
     
     init() {
         loadFromDisk()
@@ -91,24 +99,75 @@ class NotesManager: ObservableObject {
     }
     
     func saveToDisk() {
+        // Cancel any pending save
+        saveWorkItem?.cancel()
+        
+        // Create new debounced save task
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self = self else { return }
+            
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
+            encoder.outputFormatting = [] // Compact output for speed
+            
+            do {
+                let data = try encoder.encode(self.notes)
+                try data.write(to: self.saveURL, options: .atomic)
+                logger.debug("Notes saved successfully (\(self.notes.count) notes)")
+            } catch {
+                logger.error("Failed to save notes: \(error.localizedDescription)")
+            }
+        }
+        
+        saveWorkItem = workItem
+        
+        // Execute after debounce interval
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + saveDebounceInterval, execute: workItem)
+    }
+    
+    /// Force immediate save without debouncing (for critical operations)
+    func saveImmediately() {
+        saveWorkItem?.cancel()
+        
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         
-        if let data = try? encoder.encode(notes) {
-            try? data.write(to: saveURL)
+        do {
+            let data = try encoder.encode(notes)
+            try data.write(to: saveURL, options: .atomic)
+            logger.debug("Notes saved immediately (\(notes.count) notes)")
+        } catch {
+            logger.error("Failed to save notes immediately: \(error.localizedDescription)")
         }
     }
     
     func loadFromDisk() {
-        guard FileManager.default.fileExists(atPath: saveURL.path) else { return }
+        guard FileManager.default.fileExists(atPath: saveURL.path) else {
+            logger.info("No notes file found, starting fresh")
+            return
+        }
         
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        
-        if let data = try? Data(contentsOf: saveURL),
-           let decoded = try? decoder.decode([Note].self, from: data) {
+        do {
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            
+            let data = try Data(contentsOf: saveURL)
+            let decoded = try decoder.decode([Note].self, from: data)
             self.notes = decoded
             self.selectedNote = decoded.first
+            logger.debug("Loaded \(decoded.count) notes from disk")
+        } catch {
+            logger.error("Failed to load notes: \(error.localizedDescription)")
+        }
+    }
+    
+    deinit {
+        // Save immediately on deinit to ensure no data loss
+        saveWorkItem?.cancel()
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        if let data = try? encoder.encode(notes) {
+            try? data.write(to: saveURL, options: .atomic)
         }
     }
 }

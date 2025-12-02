@@ -7,6 +7,10 @@ import SwiftUI
 import AppKit
 import Combine
 import CryptoKit
+import os.log
+
+/// Private logger for FilesManager
+private let logger = Logger(subsystem: "com.trayme.TrayMe", category: "FilesManager")
 
 class FilesManager: ObservableObject {
     @Published var files: [FileItem] = []
@@ -119,49 +123,53 @@ class FilesManager: ObservableObject {
     
     init() {
         let startTime = CFAbsoluteTimeGetCurrent()
-        print("🔍 FilesManager init started")
+        logger.info("FilesManager init started")
         
         // Load files asynchronously in background to avoid blocking app launch
         // JSON parsing is fast (~10KB), but we do it off main thread for best performance
         loadFromDisk()
         
         let timeElapsed = CFAbsoluteTimeGetCurrent() - startTime
-        print("⏱️ FilesManager init took \(String(format: "%.3f", timeElapsed))s")
+        logger.debug("FilesManager init took \(String(format: "%.3f", timeElapsed))s")
     }
     
     private func loadFromDisk() {
         let startTime = CFAbsoluteTimeGetCurrent()
         
         guard FileManager.default.fileExists(atPath: saveURL.path) else {
-            print("📁 No saved files to load")
+            logger.info("No saved files to load")
             return 
         }
         
         // Load in background to avoid blocking app launch
-        DispatchQueue.global(qos: .userInitiated).async {
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self = self else { return }
+            
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
             
-            guard let data = try? Data(contentsOf: self.saveURL),
-                  let decoded = try? decoder.decode([FileItem].self, from: data) else {
-                print("❌ Failed to load/decode files")
-                return
-            }
-            
-            let loadTime = CFAbsoluteTimeGetCurrent() - startTime
-            
-            DispatchQueue.main.async {
-                self.files = decoded
-                print("📁 Loaded \(decoded.count) files in \(String(format: "%.3f", loadTime))s")
+            do {
+                let data = try Data(contentsOf: self.saveURL)
+                let decoded = try decoder.decode([FileItem].self, from: data)
+                
+                let loadTime = CFAbsoluteTimeGetCurrent() - startTime
+                
+                DispatchQueue.main.async {
+                    self.files = decoded
+                    logger.debug("Loaded \(decoded.count) files in \(String(format: "%.3f", loadTime))s")
+                }
+            } catch {
+                logger.error("Failed to load/decode files: \(error.localizedDescription)")
             }
         }
         
-        print("📁 Starting background load...")
+        logger.debug("Starting background load...")
     }
 
     func addFile(url: URL) {
         // Check if file already exists
         if files.contains(where: { $0.url == url }) {
+            logger.debug("Skipping duplicate file: \(url.lastPathComponent)")
             return
         }
         
@@ -172,7 +180,7 @@ class FilesManager: ObservableObject {
                 finalURL = copiedURL
             } else {
                 // Copy failed - show error and use reference instead
-                print("⚠️ Failed to copy file \(url.lastPathComponent), using reference instead")
+                logger.warning("Failed to copy file \(url.lastPathComponent), using reference instead")
                 finalURL = url
             }
         } else {
@@ -181,7 +189,9 @@ class FilesManager: ObservableObject {
         
         let newFile = FileItem(url: finalURL)
         
-        DispatchQueue.main.async {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            
             self.files.insert(newFile, at: 0)
             
             // Enforce limit (for single file additions via other methods)
@@ -191,7 +201,11 @@ class FilesManager: ObservableObject {
                 for file in toRemove {
                     if let storageFolder = self.storageFolderURL, 
                        self.isFileInStorage(file.url, storageFolder: storageFolder) {
-                        try? FileManager.default.removeItem(at: file.url)
+                        do {
+                            try FileManager.default.removeItem(at: file.url)
+                        } catch {
+                            logger.error("Failed to remove old file: \(error.localizedDescription)")
+                        }
                     }
                 }
                 self.files = Array(self.files.prefix(self.maxFiles))
@@ -201,8 +215,8 @@ class FilesManager: ObservableObject {
             
             // Populate metadata asynchronously to avoid blocking
             // Only for single file additions (e.g., from clipboard)
-            Task(priority: .utility) {
-                await self.populateFileMetadata(fileID: newFile.id)
+            Task(priority: .utility) { [weak self] in
+                await self?.populateFileMetadata(fileID: newFile.id)
             }
         }
     }
@@ -228,7 +242,7 @@ class FilesManager: ObservableObject {
     
     private func copyFileToStorage(_ sourceURL: URL) -> URL? {
         guard let storageFolder = storageFolderURL else {
-            print("❌ Storage folder unavailable, cannot copy file")
+            logger.error("Storage folder unavailable, cannot copy file")
             return nil
         }
         
@@ -250,15 +264,16 @@ class FilesManager: ObservableObject {
         
         // Safety check - if we hit max retries, abort
         if counter >= maxRetries {
-            print("❌ Max retries reached (\(maxRetries)) when trying to copy \(fileName)")
+            logger.error("Max retries reached (\(maxRetries)) when trying to copy \(fileName)")
             return nil
         }
         
         do {
             try FileManager.default.copyItem(at: sourceURL, to: finalURL)
+            logger.debug("File copied to storage: \(fileName)")
             return finalURL
         } catch {
-            print("❌ Failed to copy file: \(error.localizedDescription)")
+            logger.error("Failed to copy file: \(error.localizedDescription)")
             return nil
         }
     }
@@ -329,7 +344,7 @@ class FilesManager: ObservableObject {
                 if let copiedURL = copyFileToStorage(url) {
                     finalURL = copiedURL
                 } else {
-                    print("⚠️ Failed to copy file \(url.lastPathComponent), using reference instead")
+                    logger.warning("Failed to copy file \(url.lastPathComponent), using reference instead")
                     finalURL = url
                 }
             } else {
@@ -341,7 +356,8 @@ class FilesManager: ObservableObject {
         }
         
         // Add all new files at once
-        DispatchQueue.main.async {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
             self.files.insert(contentsOf: newFiles, at: 0)
             self.saveToDisk()
         }
@@ -354,7 +370,7 @@ class FilesManager: ObservableObject {
                     
                     if let bookmarkData = file.bookmarkData {
                         FilesManager.saveBookmark(bookmarkData, for: file.id)
-                        print("📑 Saved bookmark to cache for: \(file.name)")
+                        logger.debug("Saved bookmark to cache for: \(file.name)")
                     }
                 }
             }
@@ -367,7 +383,7 @@ class FilesManager: ObservableObject {
             do {
                 try FileManager.default.removeItem(at: file.url)
             } catch {
-                print("⚠️ Failed to delete stored file: \(error.localizedDescription)")
+                logger.warning("Failed to delete stored file: \(error.localizedDescription)")
             }
         }
         
@@ -385,7 +401,7 @@ class FilesManager: ObservableObject {
                 do {
                     try FileManager.default.removeItem(at: file.url)
                 } catch {
-                    print("⚠️ Failed to delete stored file: \(error.localizedDescription)")
+                    logger.warning("Failed to delete stored file: \(error.localizedDescription)")
                 }
             }
         }
@@ -397,6 +413,7 @@ class FilesManager: ObservableObject {
         
         files.removeAll()
         saveToDisk()
+        logger.info("Cleared all files")
     }
     
     func clearAllReferences() {
@@ -419,6 +436,7 @@ class FilesManager: ObservableObject {
         
         files.removeAll { !isFileInStorage($0.url, storageFolder: storageFolder) }
         saveToDisk()
+        logger.info("Cleared all reference files")
     }
     
     func clearAllStored() {
@@ -431,12 +449,13 @@ class FilesManager: ObservableObject {
             do {
                 try FileManager.default.removeItem(at: file.url)
             } catch {
-                print("⚠️ Failed to delete stored file: \(error.localizedDescription)")
+                logger.warning("Failed to delete stored file: \(error.localizedDescription)")
             }
         }
         
         files.removeAll { isFileInStorage($0.url, storageFolder: storageFolder) }
         saveToDisk()
+        logger.info("Cleared all stored files")
     }
     
     private func isFileInStorage(_ fileURL: URL, storageFolder: URL) -> Bool {
@@ -447,7 +466,7 @@ class FilesManager: ObservableObject {
     
     func openFile(_ file: FileItem) {
         guard let resolvedURL = file.resolvedURL() else {
-            print("❌ Cannot open file - URL resolution failed: \(file.name)")
+            logger.error("Cannot open file - URL resolution failed: \(file.name)")
             return
         }
         
@@ -464,7 +483,7 @@ class FilesManager: ObservableObject {
     
     func revealInFinder(_ file: FileItem) {
         guard let resolvedURL = file.resolvedURL() else {
-            print("❌ Cannot reveal file - URL resolution failed: \(file.name)")
+            logger.error("Cannot reveal file - URL resolution failed: \(file.name)")
             return
         }
         
@@ -492,7 +511,7 @@ class FilesManager: ObservableObject {
     
     func openStorageFolder() {
         guard let storageFolder = storageFolderURL else {
-            print("❌ Storage folder not available")
+            logger.error("Storage folder not available")
             return
         }
         NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: storageFolder.path)
@@ -519,8 +538,12 @@ class FilesManager: ObservableObject {
             encoder.dateEncodingStrategy = .iso8601
             encoder.outputFormatting = [] // No pretty printing for speed
             
-            if let data = try? encoder.encode(self.files) {
-                try? data.write(to: self.saveURL, options: .atomic)
+            do {
+                let data = try encoder.encode(self.files)
+                try data.write(to: self.saveURL, options: .atomic)
+                logger.debug("Files saved successfully (\(self.files.count) files)")
+            } catch {
+                logger.error("Failed to save files: \(error.localizedDescription)")
             }
         }
         
@@ -528,5 +551,15 @@ class FilesManager: ObservableObject {
         
         // Execute after debounce interval (batch multiple saves)
         DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + saveDebounceInterval, execute: workItem)
+    }
+    
+    deinit {
+        // Save immediately on deinit to ensure no data loss
+        saveWorkItem?.cancel()
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        if let data = try? encoder.encode(files) {
+            try? data.write(to: saveURL, options: .atomic)
+        }
     }
 }
