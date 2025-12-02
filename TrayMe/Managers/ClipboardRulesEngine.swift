@@ -163,16 +163,29 @@ enum RuleAction: Codable, Equatable {
     }
     
     private func sendNotification(title: String, body: String) {
-        // Use UserNotifications framework for modern macOS
-        let content = UNMutableNotificationContent()
-        content.title = title
-        content.body = body
-        content.sound = .default
-        
-        let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
-        UNUserNotificationCenter.current().add(request) { error in
+        // Request authorization if needed, then send notification
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, error in
             if let error = error {
-                print("⚠️ Notification error: \(error.localizedDescription)")
+                print("⚠️ Notification authorization error: \(error.localizedDescription)")
+                return
+            }
+            
+            guard granted else {
+                print("ℹ️ Notification permission not granted")
+                return
+            }
+            
+            // Use UserNotifications framework for modern macOS
+            let content = UNMutableNotificationContent()
+            content.title = title
+            content.body = body
+            content.sound = .default
+            
+            let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
+            UNUserNotificationCenter.current().add(request) { error in
+                if let error = error {
+                    print("⚠️ Notification error: \(error.localizedDescription)")
+                }
             }
         }
     }
@@ -183,10 +196,15 @@ enum RuleAction: Codable, Equatable {
         let filename = "clip_\(formatter.string(from: timestamp)).txt"
         
         let folderURL = URL(fileURLWithPath: folder).expandingTildeInPath()
-        try? FileManager.default.createDirectory(at: folderURL, withIntermediateDirectories: true)
         
-        let fileURL = folderURL.appendingPathComponent(filename)
-        try? content.write(to: fileURL, atomically: true, encoding: .utf8)
+        do {
+            try FileManager.default.createDirectory(at: folderURL, withIntermediateDirectories: true)
+            let fileURL = folderURL.appendingPathComponent(filename)
+            try content.write(to: fileURL, atomically: true, encoding: .utf8)
+            print("📁 Saved clipboard to: \(fileURL.path)")
+        } catch {
+            print("⚠️ Failed to save clipboard to file: \(error.localizedDescription)")
+        }
     }
 }
 

@@ -238,6 +238,7 @@ class TemplateManager: ObservableObject {
 /// Template picker/insertion view
 struct TemplatePickerView: View {
     @ObservedObject var manager: TemplateManager
+    let clipboardContent: String?  // Passed in from parent
     let onSelect: (String) -> Void
     @Environment(\.dismiss) private var dismiss
     
@@ -302,7 +303,7 @@ struct TemplatePickerView: View {
                                 onSelect: {
                                     if template.extractedVariables.isEmpty {
                                         // No custom variables, expand directly
-                                        let expanded = template.expand(clipboard: NSPasteboard.general.string(forType: .string))
+                                        let expanded = template.expand(clipboard: clipboardContent)
                                         onSelect(expanded)
                                         dismiss()
                                     } else {
@@ -322,6 +323,7 @@ struct TemplatePickerView: View {
         .sheet(item: $expandingTemplate) { template in
             TemplateExpandView(
                 template: template,
+                clipboardContent: clipboardContent,
                 customValues: $customValues,
                 onExpand: { expanded in
                     onSelect(expanded)
@@ -375,6 +377,7 @@ struct TemplateRowView: View {
 
 struct TemplateExpandView: View {
     let template: Template
+    let clipboardContent: String?  // Passed in from parent
     @Binding var customValues: [String: String]
     let onExpand: (String) -> Void
     let onCancel: () -> Void
@@ -400,7 +403,7 @@ struct TemplateExpandView: View {
             // Preview
             GroupBox("Preview") {
                 Text(template.expand(
-                    clipboard: NSPasteboard.general.string(forType: .string),
+                    clipboard: clipboardContent,
                     customValues: customValues
                 ))
                 .font(.system(size: 12, design: .monospaced))
@@ -413,7 +416,7 @@ struct TemplateExpandView: View {
                 Spacer()
                 Button("Insert") {
                     let expanded = template.expand(
-                        clipboard: NSPasteboard.general.string(forType: .string),
+                        clipboard: clipboardContent,
                         customValues: customValues
                     )
                     onExpand(expanded)

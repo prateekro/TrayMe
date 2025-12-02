@@ -91,8 +91,10 @@ class SemanticSearchHelper {
         
         // Yesterday
         if lowercased.contains("yesterday") {
-            let startOfYesterday = calendar.date(byAdding: .day, value: -1, to: calendar.startOfDay(for: now))!
-            let endOfYesterday = calendar.date(byAdding: .second, value: -1, to: calendar.startOfDay(for: now))!
+            guard let startOfYesterday = calendar.date(byAdding: .day, value: -1, to: calendar.startOfDay(for: now)),
+                  let endOfYesterday = calendar.date(byAdding: .second, value: -1, to: calendar.startOfDay(for: now)) else {
+                return nil
+            }
             return startOfYesterday...endOfYesterday
         }
         
@@ -104,19 +106,25 @@ class SemanticSearchHelper {
         
         // Last hour
         if lowercased.contains("last hour") || lowercased.contains("past hour") {
-            let oneHourAgo = calendar.date(byAdding: .hour, value: -1, to: now)!
+            guard let oneHourAgo = calendar.date(byAdding: .hour, value: -1, to: now) else {
+                return nil
+            }
             return oneHourAgo...now
         }
         
         // Last week
         if lowercased.contains("last week") || lowercased.contains("past week") || lowercased.contains("this week") {
-            let oneWeekAgo = calendar.date(byAdding: .day, value: -7, to: now)!
+            guard let oneWeekAgo = calendar.date(byAdding: .day, value: -7, to: now) else {
+                return nil
+            }
             return oneWeekAgo...now
         }
         
         // Last month
         if lowercased.contains("last month") || lowercased.contains("past month") || lowercased.contains("this month") {
-            let oneMonthAgo = calendar.date(byAdding: .month, value: -1, to: now)!
+            guard let oneMonthAgo = calendar.date(byAdding: .month, value: -1, to: now) else {
+                return nil
+            }
             return oneMonthAgo...now
         }
         
@@ -124,8 +132,8 @@ class SemanticSearchHelper {
         if let match = lowercased.range(of: #"(\d+)\s*days?\s*ago"#, options: .regularExpression) {
             let matchString = String(lowercased[match])
             if let daysString = matchString.split(separator: " ").first,
-               let days = Int(daysString) {
-                let startDate = calendar.date(byAdding: .day, value: -days, to: now)!
+               let days = Int(daysString),
+               let startDate = calendar.date(byAdding: .day, value: -days, to: now) {
                 return startDate...now
             }
         }
@@ -134,8 +142,8 @@ class SemanticSearchHelper {
         if let match = lowercased.range(of: #"(\d+)\s*hours?\s*ago"#, options: .regularExpression) {
             let matchString = String(lowercased[match])
             if let hoursString = matchString.split(separator: " ").first,
-               let hours = Int(hoursString) {
-                let startDate = calendar.date(byAdding: .hour, value: -hours, to: now)!
+               let hours = Int(hoursString),
+               let startDate = calendar.date(byAdding: .hour, value: -hours, to: now) {
                 return startDate...now
             }
         }
