@@ -24,6 +24,9 @@ struct NotesView: View {
     @State private var noteContent: String = ""
     @State private var noteTitle: String = ""
     @State private var saveWorkItem: DispatchWorkItem?
+    @State private var viewMode: NoteViewMode = .edit
+    @State private var renderedContent: AttributedString = AttributedString("")
+    @State private var renderWorkItem: DispatchWorkItem?
     @FocusState private var isEditorFocused: Bool
     
     var body: some View {
@@ -78,52 +81,39 @@ struct NotesView: View {
             // Note editor
             if let selectedNote = manager.selectedNote {
                 VStack(spacing: 0) {
-                    // Title field
-                    TextField("Title", text: $noteTitle)
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 18, weight: .semibold))
-                        .padding()
-                        .onChange(of: noteTitle) { oldValue, newValue in
-                            guard let selectedNote = manager.selectedNote else { return }
-                            
-                            // Cancel previous save
-                            saveWorkItem?.cancel()
-                            
-                            // Create new debounced save
-                            let workItem = DispatchWorkItem { [weak manager] in
-                                manager?.updateNote(selectedNote, title: newValue)
-                                print("📝 Auto-saved title: \(newValue)")
+                    // Header with title and view mode toggle
+                    HStack {
+                        TextField("Title", text: $noteTitle)
+                            .textFieldStyle(.plain)
+                            .font(.system(size: 18, weight: .semibold))
+                            .onChange(of: noteTitle) { oldValue, newValue in
+                                guard let selectedNote = manager.selectedNote else { return }
+                                
+                                // Cancel previous save
+                                saveWorkItem?.cancel()
+                                
+                                // Create new debounced save
+                                let workItem = DispatchWorkItem { [weak manager] in
+                                    manager?.updateNote(selectedNote, title: newValue)
+                                    print("📝 Auto-saved title: \(newValue)")
+                                }
+                                saveWorkItem = workItem
+                                
+                                // Execute after 0.5 seconds
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: workItem)
                             }
-                            saveWorkItem = workItem
-                            
-                            // Execute after 0.5 seconds
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: workItem)
-                        }
+                        
+                        Spacer()
+                        
+                        // View mode picker
+                        viewModePicker
+                    }
+                    .padding()
                     
                     Divider()
                     
-                    // Content editor
-                    TextEditor(text: $noteContent)
-                        .font(.system(size: 14))
-                        .padding(8)
-                        .focused($isEditorFocused)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .onChange(of: noteContent) { oldValue, newValue in
-                            guard let selectedNote = manager.selectedNote else { return }
-                            
-                            // Cancel previous save
-                            saveWorkItem?.cancel()
-                            
-                            // Create new debounced save
-                            let workItem = DispatchWorkItem { [weak manager] in
-                                manager?.updateNote(selectedNote, content: newValue)
-                                print("📝 Auto-saved content")
-                            }
-                            saveWorkItem = workItem
-                            
-                            // Execute after 0.5 seconds
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: workItem)
-                        }
+                    // Content area based on view mode
+                    contentArea
                     
                     // Footer with actions
                     HStack {
@@ -210,6 +200,130 @@ struct NotesView: View {
         }
     }
     
+    // MARK: - View Mode Picker
+    
+    private var viewModePicker: some View {
+        HStack(spacing: 2) {
+            ForEach(NoteViewMode.allCases, id: \.self) { mode in
+                Button(action: {
+                    viewMode = mode
+                    if mode != .edit {
+                        updateRenderedContent()
+                    }
+                }) {
+                    Image(systemName: mode.icon)
+                        .font(.system(size: 12))
+                        .foregroundColor(viewMode == mode ? .white : .secondary)
+                        .frame(width: 24, height: 20)
+                        .background(
+                            RoundedRectangle(cornerRadius: 4)
+                                .fill(viewMode == mode ? Color.accentColor : Color.clear)
+                        )
+                }
+                .buttonStyle(.plain)
+                .help(mode.rawValue)
+            }
+        }
+        .padding(2)
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(Color(NSColor.controlBackgroundColor))
+        )
+    }
+    
+    // MARK: - Content Area
+    
+    @ViewBuilder
+    private var contentArea: some View {
+        switch viewMode {
+        case .edit:
+            editorView
+        case .preview:
+            previewView
+        case .split:
+            splitView
+        }
+    }
+    
+    private var editorView: some View {
+        TextEditor(text: $noteContent)
+            .font(.system(size: 14, design: .monospaced))
+            .padding(8)
+            .focused($isEditorFocused)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .onChange(of: noteContent) { oldValue, newValue in
+                handleContentChange(newValue)
+            }
+    }
+    
+    private var previewView: some View {
+        ScrollView {
+            Text(renderedContent)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(NSColor.textBackgroundColor))
+    }
+    
+    private var splitView: some View {
+        HSplitView {
+            // Editor side
+            TextEditor(text: $noteContent)
+                .font(.system(size: 14, design: .monospaced))
+                .padding(8)
+                .focused($isEditorFocused)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .onChange(of: noteContent) { oldValue, newValue in
+                    handleContentChange(newValue)
+                }
+            
+            // Preview side
+            ScrollView {
+                Text(renderedContent)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding()
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color(NSColor.textBackgroundColor))
+        }
+    }
+    
+    // MARK: - Helper Methods
+    
+    private func handleContentChange(_ newValue: String) {
+        guard let selectedNote = manager.selectedNote else { return }
+        
+        // Cancel previous save
+        saveWorkItem?.cancel()
+        
+        // Create new debounced save
+        let workItem = DispatchWorkItem { [weak manager] in
+            manager?.updateNote(selectedNote, content: newValue)
+            print("📝 Auto-saved content")
+        }
+        saveWorkItem = workItem
+        
+        // Execute after 0.5 seconds
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: workItem)
+        
+        // Update markdown preview with debounce (300ms)
+        if viewMode != .edit {
+            renderWorkItem?.cancel()
+            let renderWork = DispatchWorkItem {
+                updateRenderedContent()
+            }
+            renderWorkItem = renderWork
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: renderWork)
+        }
+    }
+    
+    private func updateRenderedContent() {
+        renderedContent = MarkdownRenderer.renderFull(noteContent)
+    }
+    
     func selectNote(_ note: Note) {
         print("📝 Selecting note: \(note.displayTitle)")
         
@@ -226,6 +340,11 @@ struct NotesView: View {
         manager.selectedNote = note
         noteTitle = note.title
         noteContent = note.content
+        
+        // Update rendered content for preview modes
+        if viewMode != .edit {
+            updateRenderedContent()
+        }
     }
 }
 

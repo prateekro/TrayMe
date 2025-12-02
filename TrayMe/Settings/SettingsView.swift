@@ -95,6 +95,7 @@ struct GeneralSettingsView: View {
 
 struct ClipboardSettingsView: View {
     @EnvironmentObject var settings: AppSettings
+    @State private var showExcludedAppsSheet = false
     
     var body: some View {
         Form {
@@ -116,6 +117,29 @@ struct ClipboardSettingsView: View {
                     .disabled(!settings.clipboardEnabled)
             }
             
+            Section(header: Text("Excluded Apps").font(.headline)) {
+                Text("Clipboard won't be tracked when copying from these apps:")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                
+                HStack {
+                    Text("\(settings.excludedAppBundleIds.count) apps excluded")
+                        .foregroundColor(.secondary)
+                    
+                    Spacer()
+                    
+                    Button("Manage...") {
+                        showExcludedAppsSheet = true
+                    }
+                    .disabled(!settings.clipboardEnabled)
+                }
+                
+                Button("Add Default Password Managers") {
+                    settings.excludeAllDefaultApps()
+                }
+                .disabled(!settings.clipboardEnabled)
+            }
+            
             Section(header: Text("Privacy").font(.headline)) {
                 Text("Clipboard data is stored locally on your Mac")
                     .font(.caption)
@@ -127,6 +151,153 @@ struct ClipboardSettingsView: View {
             }
         }
         .padding(20)
+        .sheet(isPresented: $showExcludedAppsSheet) {
+            ExcludedAppsView()
+                .environmentObject(settings)
+        }
+    }
+}
+
+/// View for managing excluded apps
+struct ExcludedAppsView: View {
+    @EnvironmentObject var settings: AppSettings
+    @Environment(\.dismiss) private var dismiss
+    @State private var customBundleId = ""
+    
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header
+            HStack {
+                Text("Excluded Apps")
+                    .font(.headline)
+                Spacer()
+                Button("Done") {
+                    dismiss()
+                }
+            }
+            .padding()
+            
+            Divider()
+            
+            // Default apps section
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Common Password Managers")
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal)
+                    .padding(.top, 8)
+                
+                ScrollView {
+                    LazyVStack(spacing: 4) {
+                        ForEach(AppSettings.defaultExcludedApps) { app in
+                            ExcludedAppRow(
+                                app: app,
+                                isExcluded: settings.excludedAppBundleIds.contains(app.bundleId),
+                                onToggle: { isExcluded in
+                                    if isExcluded {
+                                        settings.excludeApp(app.bundleId)
+                                    } else {
+                                        settings.includeApp(app.bundleId)
+                                    }
+                                }
+                            )
+                        }
+                    }
+                    .padding(.horizontal)
+                }
+                .frame(maxHeight: 200)
+            }
+            
+            Divider()
+            
+            // Custom apps section
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Custom Apps (Bundle ID)")
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal)
+                    .padding(.top, 8)
+                
+                HStack {
+                    TextField("com.example.app", text: $customBundleId)
+                        .textFieldStyle(.roundedBorder)
+                    
+                    Button("Add") {
+                        if !customBundleId.isEmpty {
+                            settings.excludeApp(customBundleId)
+                            customBundleId = ""
+                        }
+                    }
+                    .disabled(customBundleId.isEmpty)
+                }
+                .padding(.horizontal)
+                
+                // List of custom excluded apps
+                let customApps = settings.excludedAppBundleIds.filter { bundleId in
+                    !AppSettings.defaultExcludedApps.contains(where: { $0.bundleId == bundleId })
+                }
+                
+                if !customApps.isEmpty {
+                    ScrollView {
+                        LazyVStack(spacing: 4) {
+                            ForEach(Array(customApps), id: \.self) { bundleId in
+                                HStack {
+                                    Text(bundleId)
+                                        .font(.system(size: 12, design: .monospaced))
+                                    Spacer()
+                                    Button(action: {
+                                        settings.includeApp(bundleId)
+                                    }) {
+                                        Image(systemName: "xmark.circle.fill")
+                                            .foregroundColor(.red)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                                .padding(.vertical, 4)
+                                .padding(.horizontal, 8)
+                                .background(Color(NSColor.controlBackgroundColor))
+                                .cornerRadius(6)
+                            }
+                        }
+                        .padding(.horizontal)
+                    }
+                    .frame(maxHeight: 100)
+                }
+            }
+            
+            Spacer()
+        }
+        .frame(width: 400, height: 450)
+    }
+}
+
+struct ExcludedAppRow: View {
+    let app: ExcludedApp
+    let isExcluded: Bool
+    let onToggle: (Bool) -> Void
+    
+    var body: some View {
+        HStack {
+            Toggle(isOn: Binding(
+                get: { isExcluded },
+                set: { onToggle($0) }
+            )) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(app.name)
+                        .font(.system(size: 13))
+                    Text(app.bundleId)
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundColor(.secondary)
+                }
+            }
+            .toggleStyle(.checkbox)
+        }
+        .padding(.vertical, 4)
+        .padding(.horizontal, 8)
+        .background(Color(NSColor.controlBackgroundColor))
+        .cornerRadius(6)
     }
 }
 

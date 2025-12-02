@@ -11,6 +11,7 @@ struct ClipboardView: View {
     @State private var selectedItem: ClipboardItem?
     @State private var editedContent: String = ""
     @State private var saveWorkItem: DispatchWorkItem?
+    @State private var showExportSheet = false
     
     var body: some View {
         HStack(spacing: 0) {
@@ -86,6 +87,16 @@ struct ClipboardView: View {
                 
                 Spacer()
                 
+                Button(action: { showExportSheet = true }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "square.and.arrow.up")
+                        Text("Export")
+                    }
+                    .font(.system(size: 11))
+                }
+                .buttonStyle(.plain)
+                .foregroundColor(.accentColor)
+                
                 Button("Clear History") {
                     manager.clearHistory()
                 }
@@ -132,6 +143,9 @@ struct ClipboardView: View {
                 .frame(width: 300)
             }
         }
+        .sheet(isPresented: $showExportSheet) {
+            ExportHistoryView(manager: manager)
+        }
     }
     
     func selectItem(_ item: ClipboardItem) {
@@ -150,20 +164,36 @@ struct ClipboardItemRow: View {
     
     var body: some View {
         HStack(spacing: 12) {
-            // Type icon
-            Image(systemName: iconForType(item.type))
-                .foregroundColor(colorForType(item.type))
-                .frame(width: 20)
+            // Category icon with badge
+            ZStack {
+                Image(systemName: item.category.icon)
+                    .foregroundColor(colorForCategory(item.category))
+                    .frame(width: 20)
+            }
             
             // Content
             VStack(alignment: .leading, spacing: 2) {
-                Text(item.displayContent)
-                    .font(.system(size: 13))
-                    .lineLimit(2)
+                HStack(spacing: 4) {
+                    Text(item.displayContent)
+                        .font(.system(size: 13))
+                        .lineLimit(2)
+                    
+                    // Category badge
+                    CategoryBadge(category: item.category)
+                }
                 
-                Text(item.timeAgo)
-                    .font(.system(size: 10))
-                    .foregroundColor(.secondary)
+                HStack(spacing: 8) {
+                    Text(item.timeAgo)
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary)
+                    
+                    if let sourceApp = item.sourceApp {
+                        Text("from \(sourceApp.components(separatedBy: ".").last ?? sourceApp)")
+                            .font(.system(size: 9))
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                    }
+                }
             }
             
             Spacer()
@@ -206,21 +236,48 @@ struct ClipboardItemRow: View {
         )
     }
     
-    func iconForType(_ type: ClipboardItem.ClipboardType) -> String {
-        switch type {
-        case .text: return "doc.text"
-        case .url: return "link"
-        case .code: return "chevron.left.forwardslash.chevron.right"
-        case .image: return "photo"
+    func colorForCategory(_ category: ClipboardCategory) -> Color {
+        switch category {
+        case .text: return .secondary
+        case .url: return .blue
+        case .email: return .orange
+        case .phone: return .green
+        case .code: return .purple
+        case .json: return .indigo
+        case .address: return .red
+        case .image: return .pink
+        case .file: return .gray
+        }
+    }
+}
+
+/// Category badge view
+struct CategoryBadge: View {
+    let category: ClipboardCategory
+    
+    var body: some View {
+        if category != .text {
+            Text(category.rawValue.uppercased())
+                .font(.system(size: 8, weight: .bold))
+                .padding(.horizontal, 4)
+                .padding(.vertical, 2)
+                .background(backgroundColor)
+                .foregroundColor(.white)
+                .cornerRadius(3)
         }
     }
     
-    func colorForType(_ type: ClipboardItem.ClipboardType) -> Color {
-        switch type {
-        case .text: return .blue
-        case .url: return .green
+    var backgroundColor: Color {
+        switch category {
+        case .text: return .secondary
+        case .url: return .blue
+        case .email: return .orange
+        case .phone: return .green
         case .code: return .purple
-        case .image: return .orange
+        case .json: return .indigo
+        case .address: return .red
+        case .image: return .pink
+        case .file: return .gray
         }
     }
 }
@@ -238,7 +295,10 @@ struct FavoriteClipCard: View {
                 Image(systemName: "star.fill")
                     .foregroundColor(.yellow)
                     .font(.system(size: 10))
+                
                 Spacer()
+                
+                CategoryBadge(category: item.category)
             }
             
             Text(item.displayContent)
@@ -280,6 +340,8 @@ struct ClipboardDetailView: View {
                     .font(.system(size: 14, weight: .semibold))
                 
                 Spacer()
+                
+                CategoryBadge(category: item.category)
                 
                 Button(action: onClose) {
                     Image(systemName: "xmark.circle.fill")
@@ -333,6 +395,95 @@ struct ClipboardDetailView: View {
             }
             .padding()
             .background(Color(NSColor.windowBackgroundColor).opacity(0.5))
+        }
+    }
+}
+
+/// Export history view
+struct ExportHistoryView: View {
+    let manager: ClipboardManager
+    @Environment(\.dismiss) private var dismiss
+    
+    @State private var selectedFormat: ExportFormat = .json
+    @State private var includeOnlyFavorites = false
+    @State private var isExporting = false
+    @State private var exportError: String?
+    
+    var body: some View {
+        VStack(spacing: 20) {
+            Text("Export Clipboard History")
+                .font(.headline)
+            
+            Form {
+                Picker("Format:", selection: $selectedFormat) {
+                    ForEach(ExportFormat.allCases, id: \.self) { format in
+                        Text(format.rawValue).tag(format)
+                    }
+                }
+                .pickerStyle(.radioGroup)
+                
+                Toggle("Include only favorites", isOn: $includeOnlyFavorites)
+                
+                Text("\(manager.items.count) items will be exported")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            
+            if let error = exportError {
+                Text(error)
+                    .foregroundColor(.red)
+                    .font(.caption)
+            }
+            
+            HStack {
+                Button("Cancel") {
+                    dismiss()
+                }
+                
+                Spacer()
+                
+                Button("Export...") {
+                    exportHistory()
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(isExporting)
+            }
+        }
+        .padding()
+        .frame(width: 350, height: 250)
+    }
+    
+    private func exportHistory() {
+        let savePanel = NSSavePanel()
+        savePanel.title = "Export Clipboard History"
+        savePanel.allowedContentTypes = [.plainText]
+        savePanel.nameFieldStringValue = "clipboard_history.\(selectedFormat.fileExtension)"
+        
+        savePanel.begin { response in
+            if response == .OK, let url = savePanel.url {
+                isExporting = true
+                exportError = nil
+                
+                DispatchQueue.global(qos: .userInitiated).async {
+                    do {
+                        try manager.exportHistory(
+                            to: url,
+                            format: selectedFormat,
+                            includeOnlyFavorites: includeOnlyFavorites
+                        )
+                        
+                        DispatchQueue.main.async {
+                            isExporting = false
+                            dismiss()
+                        }
+                    } catch {
+                        DispatchQueue.main.async {
+                            isExporting = false
+                            exportError = "Export failed: \(error.localizedDescription)"
+                        }
+                    }
+                }
+            }
         }
     }
 }
