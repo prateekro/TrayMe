@@ -15,6 +15,8 @@ namespace TrayMe.Windows.Managers
 {
     public class FilesManager : INotifyPropertyChanged
     {
+        private const int AbsoluteMaxFileLimit = 100;
+        
         private ObservableCollection<FileItem> _files = new();
         private string _searchText = string.Empty;
         private bool _isLoading;
@@ -48,8 +50,8 @@ namespace TrayMe.Windows.Managers
 
         public int MaxFiles
         {
-            get => Math.Min(_maxFiles, 100);
-            set { _maxFiles = Math.Min(value, 100); OnPropertyChanged(); SaveSettings(); }
+            get => Math.Min(_maxFiles, AbsoluteMaxFileLimit);
+            set { _maxFiles = Math.Min(value, AbsoluteMaxFileLimit); OnPropertyChanged(); SaveSettings(); }
         }
 
         public ObservableCollection<FileItem> FilteredFiles

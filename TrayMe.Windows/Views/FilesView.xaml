@@ -133,8 +133,9 @@
                                                 Click="OpenFile_Click" ToolTip="Open">
                                             <TextBlock Text="📂" FontSize="12"/>
                                         </Button>
-                                        <Button Style="{StaticResource SmallIconButtonStyle}" 
-                                                Click="CopyImage_Click" ToolTip="Copy Image">
+                                        <Button x:Name="CopyImageButton" Style="{StaticResource SmallIconButtonStyle}" 
+                                                Click="CopyImage_Click" ToolTip="Copy Image"
+                                                Visibility="{Binding FileType, Converter={StaticResource ImageFileToVisibilityConverter}}">
                                             <TextBlock Text="📋" FontSize="12"/>
                                         </Button>
                                         <Button Style="{StaticResource SmallIconButtonStyle}" 

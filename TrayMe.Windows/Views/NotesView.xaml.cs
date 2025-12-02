@@ -97,7 +97,7 @@ namespace TrayMe.Windows.Views
 
         private void UpdatePinButton(bool isPinned)
         {
-            PinButtonIcon.Text = isPinned ? "📌" : "📌";
+            PinButtonIcon.Text = isPinned ? "📌" : "📍";
             PinButtonText.Text = isPinned ? "Pinned" : "Pin";
             PinButton.Foreground = isPinned 
                 ? (Brush)FindResource("AccentBrush") 

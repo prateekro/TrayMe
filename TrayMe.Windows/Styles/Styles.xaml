@@ -36,6 +36,7 @@
     
     <!-- Converters -->
     <local:StringToVisibilityConverter x:Key="StringToVisibilityConverter"/>
+    <local:ImageFileToVisibilityConverter x:Key="ImageFileToVisibilityConverter"/>
     
     <!-- Search TextBox Style -->
     <Style x:Key="SearchTextBoxStyle" TargetType="TextBox">

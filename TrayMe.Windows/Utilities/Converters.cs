@@ -2,6 +2,7 @@ using System;
 using System.Globalization;
 using System.Windows;
 using System.Windows.Data;
+using TrayMe.Windows.Models;
 
 namespace TrayMe.Windows.Utilities
 {
@@ -57,6 +58,23 @@ namespace TrayMe.Windows.Utilities
             if (value is bool b)
                 return !b;
             return false;
+        }
+    }
+
+    public class ImageFileToVisibilityConverter : IValueConverter
+    {
+        public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+        {
+            if (value is string fileType)
+            {
+                return FileItem.IsImageFile(fileType) ? Visibility.Visible : Visibility.Collapsed;
+            }
+            return Visibility.Collapsed;
+        }
+
+        public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        {
+            throw new NotImplementedException();
         }
     }
 }
