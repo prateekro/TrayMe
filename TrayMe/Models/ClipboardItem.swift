@@ -79,6 +79,9 @@ enum ClipboardCategory: String, Codable, CaseIterable {
     case image
     case file
     
+    // Cached URL detector for performance
+    private static let urlDetector: NSDataDetector? = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
+    
     /// Icon name for the category
     var icon: String {
         switch self {
@@ -149,7 +152,7 @@ enum ClipboardCategory: String, Codable, CaseIterable {
     private static func isURL(_ content: String) -> Bool {
         // Check for common URL patterns
         if content.hasPrefix("http://") || content.hasPrefix("https://") || content.hasPrefix("ftp://") {
-            if let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue),
+            if let detector = urlDetector,
                let match = detector.firstMatch(in: content, range: NSRange(content.startIndex..., in: content)),
                match.range.length == content.count {
                 return true

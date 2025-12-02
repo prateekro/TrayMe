@@ -4,6 +4,7 @@
 //
 
 import SwiftUI
+import Carbon.HIToolbox
 
 struct SettingsView: View {
     @EnvironmentObject var settings: AppSettings
@@ -254,13 +255,13 @@ class KeyRecorderNSView: NSView {
         let modifiers = event.modifierFlags.intersection([.command, .control, .option, .shift])
         
         // Escape cancels
-        if event.keyCode == 53 { // Escape key
+        if event.keyCode == UInt16(kVK_Escape) {
             onCancel?()
             return
         }
         
         // Must have at least one modifier (except for function keys)
-        let isFunctionKey = event.keyCode >= 122 && event.keyCode <= 135
+        let isFunctionKey = event.keyCode >= UInt16(kVK_F1) && event.keyCode <= UInt16(kVK_F12)
         if modifiers.isEmpty && !isFunctionKey {
             return
         }
