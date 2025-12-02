@@ -7,6 +7,10 @@
 
 import SwiftUI
 import AppKit
+import os.log
+
+/// Private logger for TrayMeApp
+private let logger = Logger(subsystem: "com.trayme.TrayMe", category: "App")
 
 @main
 struct TrayMeApp: App {
@@ -37,7 +41,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     
     func applicationDidFinishLaunching(_ notification: Notification) {
         let appStartTime = CFAbsoluteTimeGetCurrent()
-        print("🚀 TrayMe starting...")
+        logger.info("TrayMe starting...")
         
         // Hide dock icon for menu bar app behavior
         NSApp.setActivationPolicy(.accessory)
@@ -45,7 +49,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Create status bar item
         let statusBarTime = CFAbsoluteTimeGetCurrent()
         setupStatusBar()
-        print("✅ Status bar created (\(String(format: "%.3f", CFAbsoluteTimeGetCurrent() - statusBarTime))s)")
+        logger.debug("Status bar created (\(String(format: "%.3f", CFAbsoluteTimeGetCurrent() - statusBarTime))s)")
         
         // Create main panel with shared managers
         let panelStartTime = CFAbsoluteTimeGetCurrent()
@@ -55,7 +59,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             notesManager: notesManager,
             appSettings: appSettings
         )
-        print("✅ Main panel created (\(String(format: "%.3f", CFAbsoluteTimeGetCurrent() - panelStartTime))s)")
+        logger.debug("Main panel created (\(String(format: "%.3f", CFAbsoluteTimeGetCurrent() - panelStartTime))s)")
         
         // Setup global hotkey first
         setupHotkey()
@@ -85,7 +89,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
         )
         
-        print("✅ TrayMe ready! (Total: \(String(format: "%.3f", CFAbsoluteTimeGetCurrent() - appStartTime))s)")
+        let totalTime = CFAbsoluteTimeGetCurrent() - appStartTime
+        logger.info("TrayMe ready! (Total: \(String(format: "%.3f", totalTime))s)")
     }
     
     func setupStatusBar() {
@@ -99,12 +104,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     @objc func togglePanel() {
-        print("🔄 Toggle panel called")
+        logger.debug("Toggle panel called")
         mainPanel?.toggle()
     }
     
     func setupHotkey() {
-        print("⌨️ Setting up hotkey: Cmd+Ctrl+Shift+U")
+        logger.debug("Setting up hotkey: Cmd+Ctrl+Shift+U")
         
         // Local monitor for when app has focus
         localEventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
@@ -112,7 +117,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                event.modifierFlags.contains(.control) && 
                event.modifierFlags.contains(.shift) && 
                event.keyCode == 32 { // keyCode 32 = U
-                print("🔥 Local hotkey triggered!")
+                logger.debug("Local hotkey triggered")
                 self?.togglePanel()
                 return nil
             }
@@ -125,12 +130,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                event.modifierFlags.contains(.control) && 
                event.modifierFlags.contains(.shift) && 
                event.keyCode == 32 { // keyCode 32 = U
-                print("🔥 Global hotkey triggered!")
+                logger.debug("Global hotkey triggered")
                 self?.togglePanel()
             }
         }
         
-        print("✅ Hotkey registered (requires Accessibility permissions for global)")
+        logger.debug("Hotkey registered (requires Accessibility permissions for global)")
     }
     
     func requestAccessibilityPermissions() {
@@ -139,16 +144,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let accessEnabled = AXIsProcessTrustedWithOptions(options)
         
         if accessEnabled {
-            print("✅ Accessibility permissions granted!")
-            print("   ✓ Global hotkey (Cmd+Ctrl+Shift+U) will work system-wide")
+            logger.info("Accessibility permissions granted - global hotkey will work system-wide")
         } else {
-            print("ℹ️  Accessibility permissions not granted (optional)")
-            print("   • Global hotkey will only work when app is focused")
-            print("   • Mouse scroll-down gesture works WITHOUT permissions ✨")
-            print("")
-            print("   To enable global hotkey (optional):")
-            print("   Go to: System Settings > Privacy & Security > Accessibility")
-            print("   Enable 'TrayMe' and restart the app")
+            logger.info("Accessibility permissions not granted (optional) - global hotkey will only work when app is focused")
         }
     }
     

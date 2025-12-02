@@ -8,6 +8,10 @@ import Foundation
 import LocalAuthentication
 import AppKit
 import Combine
+import os.log
+
+/// Private logger for SecurityManager
+private let logger = Logger(subsystem: "com.trayme.TrayMe", category: "SecurityManager")
 
 /// Security manager for authentication and sensitive data protection
 @MainActor
@@ -207,7 +211,7 @@ class SecurityManager: ObservableObject {
                 parameters: ["authentication", Date(), success ? 1 : 0]
             )
         } catch {
-            print("Failed to log access attempt: \(error)")
+            logger.error("Failed to log access attempt: \(error.localizedDescription)")
         }
     }
     
@@ -305,7 +309,7 @@ extension SecurityManager {
                 parameters: [id.uuidString]
             )
         } catch {
-            print("Failed to delete sensitive item: \(error)")
+            logger.error("Failed to delete sensitive item: \(error.localizedDescription)")
         }
     }
 }

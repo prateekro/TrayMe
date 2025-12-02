@@ -6,16 +6,20 @@
 import Foundation
 import AppKit
 
-struct ClipboardItem: Identifiable, Codable, Equatable {
+struct ClipboardItem: Identifiable, Codable, Equatable, Hashable {
     let id: UUID
     let content: String
     let timestamp: Date
     var isFavorite: Bool
     let type: ClipboardType
     
+    /// Maximum content length (5MB text equivalent to prevent memory issues)
+    static let maxContentLength = 5_000_000
+    
     init(content: String, type: ClipboardType = .text, isFavorite: Bool = false) {
         self.id = UUID()
-        self.content = content
+        // Truncate content if too long (edge case protection)
+        self.content = String(content.prefix(Self.maxContentLength))
         self.timestamp = Date()
         self.isFavorite = isFavorite
         self.type = type
@@ -23,7 +27,8 @@ struct ClipboardItem: Identifiable, Codable, Equatable {
     
     init(id: UUID, content: String, type: ClipboardType, date: Date, isFavorite: Bool) {
         self.id = id
-        self.content = content
+        // Truncate content if too long (edge case protection)
+        self.content = String(content.prefix(Self.maxContentLength))
         self.timestamp = date
         self.isFavorite = isFavorite
         self.type = type
@@ -48,5 +53,29 @@ struct ClipboardItem: Identifiable, Codable, Equatable {
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .abbreviated
         return formatter.localizedString(for: timestamp, relativeTo: Date())
+    }
+    
+    /// Word count of the content
+    var wordCount: Int {
+        let words = content.components(separatedBy: .whitespacesAndNewlines)
+        return words.filter { !$0.isEmpty }.count
+    }
+    
+    /// Character count of the content
+    var characterCount: Int {
+        content.count
+    }
+    
+    // MARK: - Equatable & Hashable
+    // Use only ID for equality and hashing since UUIDs are unique identifiers.
+    // Each ClipboardItem has a unique UUID that never changes, making ID-based
+    // comparison semantically correct and consistent with Identifiable protocol.
+    
+    static func == (lhs: ClipboardItem, rhs: ClipboardItem) -> Bool {
+        lhs.id == rhs.id
+    }
+    
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
     }
 }

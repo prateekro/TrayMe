@@ -6,6 +6,10 @@
 import SwiftUI
 import AppKit
 import Combine
+import os.log
+
+/// Private logger for ClipboardManager
+private let logger = Logger(subsystem: "com.trayme.TrayMe", category: "ClipboardManager")
 
 class ClipboardManager: ObservableObject {
     @Published var items: [ClipboardItem] = []
@@ -21,6 +25,10 @@ class ClipboardManager: ObservableObject {
     private var pasteboard = NSPasteboard.general
     private var changeCount: Int = 0
     private var timer: Timer?
+    
+    // Debounced save to prevent excessive disk writes
+    private var saveWorkItem: DispatchWorkItem?
+    private let saveDebounceInterval: TimeInterval = 0.5
     
     // AI Engine reference
     private var aiEngine: AIClipboardEngine { AIClipboardEngine.shared }
@@ -93,7 +101,7 @@ class ClipboardManager: ObservableObject {
         let checker = UsageLimitChecker()
         let result = checker.checkAddClip()
         guard result.isAllowed else {
-            print("⚠️ Clips limit reached: \(result.message)")
+            logger.warning("Clips limit reached: \(result.message)")
             return
         }
         
@@ -253,28 +261,69 @@ class ClipboardManager: ObservableObject {
     }
     
     func saveToDisk() {
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
+        // Cancel any pending save
+        saveWorkItem?.cancel()
         
-        if let data = try? encoder.encode(items) {
-            try? data.write(to: saveURL)
+        // Create new debounced save task
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self = self else { return }
+            
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
+            encoder.outputFormatting = [] // Compact output for speed
+            
+            do {
+                let data = try encoder.encode(self.items)
+                try data.write(to: self.saveURL, options: .atomic)
+                logger.debug("Clipboard saved successfully (\(self.items.count) items)")
+            } catch {
+                logger.error("Failed to save clipboard: \(error.localizedDescription)")
+            }
         }
+        
+        saveWorkItem = workItem
+        
+        // Execute after debounce interval
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + saveDebounceInterval, execute: workItem)
     }
     
     func loadFromDisk() {
-        guard FileManager.default.fileExists(atPath: saveURL.path) else { return }
+        guard FileManager.default.fileExists(atPath: saveURL.path) else {
+            logger.info("No clipboard history file found, starting fresh")
+            return
+        }
         
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        
-        if let data = try? Data(contentsOf: saveURL),
-           let decoded = try? decoder.decode([ClipboardItem].self, from: data) {
+        do {
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            
+            let data = try Data(contentsOf: saveURL)
+            let decoded = try decoder.decode([ClipboardItem].self, from: data)
             self.items = decoded
             self.favorites = decoded.filter { $0.isFavorite }
+            logger.debug("Loaded \(decoded.count) clipboard items from disk")
+        } catch {
+            logger.error("Failed to load clipboard history: \(error.localizedDescription)")
         }
     }
     
     deinit {
+        // Cancel any pending debounced save
+        saveWorkItem?.cancel()
+        
+        // Save immediately on deinit to ensure no data loss
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        do {
+            let data = try encoder.encode(items)
+            try data.write(to: saveURL, options: .atomic)
+        } catch {
+            // Use NSLog since Logger may not be available in deinit
+            NSLog("ClipboardManager deinit: Failed to save clipboard - %@", error.localizedDescription)
+        }
+        
+        // Clean up timer and monitoring
+        timer?.invalidate()
         stopMonitoring()
     }
 }
