@@ -6,6 +6,10 @@
 
 import Foundation
 import Combine
+import os.log
+
+/// Private logger for AnalyticsManager
+private let logger = Logger(subsystem: "com.trayme.TrayMe", category: "AnalyticsManager")
 
 /// Analytics event types
 enum EventType: String, Codable {
@@ -140,7 +144,7 @@ actor AnalyticsManager {
             await updateDailyAggregate(for: event)
             
         } catch {
-            print("Analytics tracking failed: \(error)")
+            logger.error("Analytics tracking failed: \(error.localizedDescription)")
         }
     }
     
@@ -298,7 +302,7 @@ actor AnalyticsManager {
                 )
             }
         } catch {
-            print("Failed to get today's stats: \(error)")
+            logger.error("Failed to get today's stats: \(error.localizedDescription)")
         }
         
         return DailyStats.empty(for: today)
@@ -347,7 +351,7 @@ actor AnalyticsManager {
             try await database.open()
             try await database.createAnalyticsTables()
         } catch {
-            print("Failed to initialize analytics database: \(error)")
+            logger.error("Failed to initialize analytics database: \(error.localizedDescription)")
         }
     }
     
@@ -400,7 +404,7 @@ actor AnalyticsManager {
             dailyStatsCache.removeValue(forKey: today)
             
         } catch {
-            print("Failed to update daily aggregate: \(error)")
+            logger.error("Failed to update daily aggregate: \(error.localizedDescription)")
         }
     }
     
@@ -423,7 +427,7 @@ actor AnalyticsManager {
                 )
             }
         } catch {
-            print("Failed to update category stat: \(error)")
+            logger.error("Failed to update category stat: \(error.localizedDescription)")
         }
     }
     
@@ -438,7 +442,7 @@ actor AnalyticsManager {
                 parameters: [cutoff]
             )
         } catch {
-            print("Failed to cleanup old analytics data: \(error)")
+            logger.error("Failed to cleanup old analytics data: \(error.localizedDescription)")
         }
     }
 }
@@ -467,7 +471,7 @@ extension AnalyticsManager {
                 }
             }
         } catch {
-            print("Failed to get hourly heatmap: \(error)")
+            logger.error("Failed to get hourly heatmap: \(error.localizedDescription)")
         }
         
         return heatmap

@@ -101,7 +101,7 @@ class ClipboardManager: ObservableObject {
         let checker = UsageLimitChecker()
         let result = checker.checkAddClip()
         guard result.isAllowed else {
-            print("⚠️ Clips limit reached: \(result.message)")
+            logger.warning("Clips limit reached: \(result.message)")
             return
         }
         

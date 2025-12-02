@@ -7,6 +7,10 @@
 import Foundation
 import StoreKit
 import Combine
+import os.log
+
+/// Private logger for SubscriptionManager
+private let logger = Logger(subsystem: "com.trayme.TrayMe", category: "SubscriptionManager")
 
 /// Subscription tiers
 enum SubscriptionTier: String, Codable, CaseIterable {
@@ -327,7 +331,7 @@ class SubscriptionManager: ObservableObject {
         do {
             products = try await Product.products(for: productIds)
         } catch {
-            print("Failed to load products: \(error)")
+            logger.error("Failed to load products: \(error.localizedDescription)")
         }
     }
     
@@ -365,7 +369,7 @@ class SubscriptionManager: ObservableObject {
             try await AppStore.sync()
             await updateSubscriptionStatus()
         } catch {
-            print("Failed to restore purchases: \(error)")
+            logger.error("Failed to restore purchases: \(error.localizedDescription)")
         }
     }
     
@@ -387,7 +391,7 @@ class SubscriptionManager: ObservableObject {
                     activeTier = .team
                 }
             } catch {
-                print("Transaction verification failed: \(error)")
+                logger.warning("Transaction verification failed: \(error.localizedDescription)")
             }
         }
         
@@ -420,7 +424,7 @@ class SubscriptionManager: ObservableObject {
                     await self.updateSubscriptionStatus()
                     await transaction.finish()
                 } catch {
-                    print("Transaction update failed: \(error)")
+                    logger.warning("Transaction update failed: \(error.localizedDescription)")
                 }
             }
         }
