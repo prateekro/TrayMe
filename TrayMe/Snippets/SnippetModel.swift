@@ -18,6 +18,15 @@ struct Snippet: Identifiable, Codable, Equatable {
     var createdAt: Date
     var modifiedAt: Date
     
+    /// Maximum trigger length
+    static let maxTriggerLength = 50
+    
+    /// Maximum expansion length (1MB text)
+    static let maxExpansionLength = 1_000_000
+    
+    /// Maximum category name length
+    static let maxCategoryLength = 100
+    
     init(
         id: UUID = UUID(),
         trigger: String,
@@ -30,10 +39,13 @@ struct Snippet: Identifiable, Codable, Equatable {
         modifiedAt: Date = Date()
     ) {
         self.id = id
-        self.trigger = trigger
-        self.expansion = expansion
-        self.category = category
-        self.usageCount = usageCount
+        // Validate and truncate trigger
+        self.trigger = String(trigger.trimmingCharacters(in: .whitespacesAndNewlines).prefix(Self.maxTriggerLength))
+        // Truncate expansion if too long
+        self.expansion = String(expansion.prefix(Self.maxExpansionLength))
+        // Validate and truncate category
+        self.category = category.map { String($0.prefix(Self.maxCategoryLength)) }
+        self.usageCount = max(0, usageCount)
         self.lastUsed = lastUsed
         self.variables = variables ?? Self.extractVariables(from: expansion)
         self.createdAt = createdAt
