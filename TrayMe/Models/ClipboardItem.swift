@@ -67,7 +67,9 @@ struct ClipboardItem: Identifiable, Codable, Equatable, Hashable {
     }
     
     // MARK: - Equatable & Hashable
-    // Use only ID for equality and hashing since UUIDs are unique identifiers
+    // Use only ID for equality and hashing since UUIDs are unique identifiers.
+    // Each ClipboardItem has a unique UUID that never changes, making ID-based
+    // comparison semantically correct and consistent with Identifiable protocol.
     
     static func == (lhs: ClipboardItem, rhs: ClipboardItem) -> Bool {
         lhs.id == rhs.id

@@ -322,6 +322,8 @@ class ClipboardManager: ObservableObject {
             NSLog("ClipboardManager deinit: Failed to save clipboard - %@", error.localizedDescription)
         }
         
+        // Clean up timer and monitoring
+        timer?.invalidate()
         stopMonitoring()
     }
 }
