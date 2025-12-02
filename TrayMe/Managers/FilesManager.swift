@@ -554,12 +554,21 @@ class FilesManager: ObservableObject {
     }
     
     deinit {
-        // Save immediately on deinit to ensure no data loss
+        // Cancel any pending debounced save
         saveWorkItem?.cancel()
+        
+        // Save immediately on deinit to ensure no data loss
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
-        if let data = try? encoder.encode(files) {
-            try? data.write(to: saveURL, options: .atomic)
+        do {
+            let data = try encoder.encode(files)
+            try data.write(to: saveURL, options: .atomic)
+            // Note: Can't use logger in deinit as it may have been deinitialized
+        } catch {
+            // Best effort save - can't log in deinit
+            #if DEBUG
+            print("FilesManager deinit: Failed to save files - \(error.localizedDescription)")
+            #endif
         }
     }
 }

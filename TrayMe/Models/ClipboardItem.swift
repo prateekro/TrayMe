@@ -66,7 +66,12 @@ struct ClipboardItem: Identifiable, Codable, Equatable, Hashable {
         content.count
     }
     
-    // MARK: - Hashable
+    // MARK: - Equatable & Hashable
+    // Use only ID for equality and hashing since UUIDs are unique identifiers
+    
+    static func == (lhs: ClipboardItem, rhs: ClipboardItem) -> Bool {
+        lhs.id == rhs.id
+    }
     
     func hash(into hasher: inout Hasher) {
         hasher.combine(id)

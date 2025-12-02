@@ -308,7 +308,23 @@ class ClipboardManager: ObservableObject {
     }
     
     deinit {
+        // Cancel any pending debounced save
         saveWorkItem?.cancel()
+        
+        // Save immediately on deinit to ensure no data loss
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        do {
+            let data = try encoder.encode(items)
+            try data.write(to: saveURL, options: .atomic)
+            // Note: Can't use logger in deinit as it may have been deinitialized
+        } catch {
+            // Best effort save - can't log in deinit
+            #if DEBUG
+            print("ClipboardManager deinit: Failed to save clipboard - \(error.localizedDescription)")
+            #endif
+        }
+        
         stopMonitoring()
     }
 }
