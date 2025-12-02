@@ -12,6 +12,8 @@ struct ClipboardView: View {
     @State private var editedContent: String = ""
     @State private var saveWorkItem: DispatchWorkItem?
     @State private var showExportSheet = false
+    @State private var isPerformingOCR = false
+    @State private var ocrError: String?
     
     var body: some View {
         HStack(spacing: 0) {
@@ -87,6 +89,20 @@ struct ClipboardView: View {
                 
                 Spacer()
                 
+                // OCR button (only show when image is in clipboard)
+                if manager.hasImageInClipboard {
+                    Button(action: performOCR) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "text.viewfinder")
+                            Text("OCR")
+                        }
+                        .font(.system(size: 11))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundColor(.purple)
+                    .disabled(isPerformingOCR)
+                }
+                
                 Button(action: { showExportSheet = true }) {
                     HStack(spacing: 4) {
                         Image(systemName: "square.and.arrow.up")
@@ -146,6 +162,14 @@ struct ClipboardView: View {
         .sheet(isPresented: $showExportSheet) {
             ExportHistoryView(manager: manager)
         }
+        .alert("OCR Error", isPresented: .init(
+            get: { ocrError != nil },
+            set: { if !$0 { ocrError = nil } }
+        )) {
+            Button("OK") { ocrError = nil }
+        } message: {
+            Text(ocrError ?? "")
+        }
     }
     
     func selectItem(_ item: ClipboardItem) {
@@ -153,6 +177,21 @@ struct ClipboardView: View {
         editedContent = item.content
         // Copy to clipboard when selecting
         manager.copyToClipboard(item)
+    }
+    
+    func performOCR() {
+        isPerformingOCR = true
+        ocrError = nil
+        
+        manager.extractTextFromClipboardImage { result in
+            isPerformingOCR = false
+            switch result {
+            case .success(let text):
+                print("📷 OCR extracted \(text.count) characters")
+            case .failure(let error):
+                ocrError = error.localizedDescription
+            }
+        }
     }
 }
 

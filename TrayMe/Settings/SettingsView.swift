@@ -7,6 +7,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @EnvironmentObject var settings: AppSettings
+    @StateObject private var shortcutManager = KeyboardShortcutManager()
     
     var body: some View {
         TabView {
@@ -14,6 +15,12 @@ struct SettingsView: View {
                 .environmentObject(settings)
                 .tabItem {
                     Label("General", systemImage: "gearshape")
+                }
+            
+            KeyboardShortcutsSettingsView()
+                .environmentObject(shortcutManager)
+                .tabItem {
+                    Label("Shortcuts", systemImage: "keyboard")
                 }
             
             ClipboardSettingsView()
@@ -34,7 +41,7 @@ struct SettingsView: View {
                     Label("Notes", systemImage: "note.text")
                 }
         }
-        .frame(width: 500, height: 400)
+        .frame(width: 550, height: 450)
     }
 }
 
@@ -90,6 +97,191 @@ struct GeneralSettingsView: View {
             }
         }
         .padding(20)
+    }
+}
+
+/// Keyboard shortcuts settings view
+struct KeyboardShortcutsSettingsView: View {
+    @EnvironmentObject var shortcutManager: KeyboardShortcutManager
+    @State private var editingAction: ShortcutAction?
+    @State private var isRecording = false
+    @State private var errorMessage: String?
+    
+    var body: some View {
+        Form {
+            Section(header: Text("Keyboard Shortcuts").font(.headline)) {
+                Text("Customize keyboard shortcuts for TrayMe actions")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                
+                ForEach(ShortcutAction.allCases, id: \.rawValue) { action in
+                    ShortcutRowView(
+                        action: action,
+                        shortcut: shortcutManager.shortcut(for: action),
+                        isEditing: editingAction == action,
+                        onStartEdit: {
+                            editingAction = action
+                            isRecording = true
+                            errorMessage = nil
+                        },
+                        onKeyPress: { keyCode, modifiers in
+                            if shortcutManager.updateShortcut(for: action, keyCode: keyCode, modifiers: modifiers) {
+                                editingAction = nil
+                                isRecording = false
+                                errorMessage = nil
+                            } else {
+                                errorMessage = "Shortcut is reserved or already in use"
+                            }
+                        },
+                        onCancel: {
+                            editingAction = nil
+                            isRecording = false
+                            errorMessage = nil
+                        }
+                    )
+                }
+                
+                if let error = errorMessage {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundColor(.red)
+                }
+            }
+            
+            Section {
+                Button("Reset to Defaults") {
+                    shortcutManager.resetToDefaults()
+                }
+            }
+            
+            Section(header: Text("Notes").font(.headline)) {
+                Text("• Some shortcuts only work when TrayMe panel is open")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                
+                Text("• Global shortcuts (like Toggle Panel) require Accessibility permissions")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        }
+        .padding(20)
+    }
+}
+
+/// Single shortcut row view
+struct ShortcutRowView: View {
+    let action: ShortcutAction
+    let shortcut: KeyboardShortcut
+    let isEditing: Bool
+    let onStartEdit: () -> Void
+    let onKeyPress: (UInt16, NSEvent.ModifierFlags) -> Void
+    let onCancel: () -> Void
+    
+    var body: some View {
+        HStack {
+            Text(action.displayName)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            
+            if isEditing {
+                KeyRecorderView(onKeyPress: onKeyPress, onCancel: onCancel)
+                    .frame(width: 150)
+            } else {
+                Button(action: onStartEdit) {
+                    Text(shortcut.displayString)
+                        .font(.system(size: 12, design: .monospaced))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color(NSColor.controlBackgroundColor))
+                        .cornerRadius(4)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+/// Key recorder view for capturing keyboard shortcuts
+struct KeyRecorderView: NSViewRepresentable {
+    let onKeyPress: (UInt16, NSEvent.ModifierFlags) -> Void
+    let onCancel: () -> Void
+    
+    func makeNSView(context: Context) -> KeyRecorderNSView {
+        let view = KeyRecorderNSView()
+        view.onKeyPress = onKeyPress
+        view.onCancel = onCancel
+        return view
+    }
+    
+    func updateNSView(_ nsView: KeyRecorderNSView, context: Context) {
+        nsView.onKeyPress = onKeyPress
+        nsView.onCancel = onCancel
+    }
+}
+
+/// NSView for recording keyboard shortcuts
+class KeyRecorderNSView: NSView {
+    var onKeyPress: ((UInt16, NSEvent.ModifierFlags) -> Void)?
+    var onCancel: (() -> Void)?
+    
+    override var acceptsFirstResponder: Bool { true }
+    
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        setupView()
+    }
+    
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setupView()
+    }
+    
+    private func setupView() {
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.1).cgColor
+        layer?.borderColor = NSColor.controlAccentColor.cgColor
+        layer?.borderWidth = 1
+        layer?.cornerRadius = 4
+    }
+    
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        window?.makeFirstResponder(self)
+    }
+    
+    override func keyDown(with event: NSEvent) {
+        // Ignore modifier-only key presses
+        let modifiers = event.modifierFlags.intersection([.command, .control, .option, .shift])
+        
+        // Escape cancels
+        if event.keyCode == 53 { // Escape key
+            onCancel?()
+            return
+        }
+        
+        // Must have at least one modifier (except for function keys)
+        let isFunctionKey = event.keyCode >= 122 && event.keyCode <= 135
+        if modifiers.isEmpty && !isFunctionKey {
+            return
+        }
+        
+        onKeyPress?(event.keyCode, modifiers)
+    }
+    
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        
+        let text = "Press shortcut..."
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 11),
+            .foregroundColor: NSColor.secondaryLabelColor
+        ]
+        let size = text.size(withAttributes: attributes)
+        let point = NSPoint(
+            x: (bounds.width - size.width) / 2,
+            y: (bounds.height - size.height) / 2
+        )
+        text.draw(at: point, withAttributes: attributes)
     }
 }
 

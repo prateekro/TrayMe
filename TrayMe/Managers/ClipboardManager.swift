@@ -186,7 +186,38 @@ class ClipboardManager: ObservableObject {
         if searchText.isEmpty {
             return items
         }
+        
+        // Check if query looks like natural language (contains date/app/type keywords)
+        let naturalLanguageIndicators = ["yesterday", "today", "last", "from", "in", "link", "url", "email", "code", "week", "month", "ago"]
+        let isNaturalLanguageQuery = naturalLanguageIndicators.contains { searchText.lowercased().contains($0) }
+        
+        if isNaturalLanguageQuery {
+            return SemanticSearchHelper.shared.search(items: items, query: searchText)
+        }
+        
+        // Simple text search
         return items.filter { $0.content.localizedCaseInsensitiveContains(searchText) }
+    }
+    
+    /// Perform OCR on clipboard image and add extracted text
+    func extractTextFromClipboardImage(completion: @escaping (Result<String, Error>) -> Void) {
+        OCRManager.shared.recognizeTextFromClipboard { [weak self] result in
+            DispatchQueue.main.async {
+                switch result {
+                case .success(let text):
+                    // Add extracted text as a new clipboard item
+                    self?.addItem(content: text, sourceApp: "OCR (Image)")
+                    completion(.success(text))
+                case .failure(let error):
+                    completion(.failure(error))
+                }
+            }
+        }
+    }
+    
+    /// Check if clipboard contains an image
+    var hasImageInClipboard: Bool {
+        return OCRManager.shared.hasImageInClipboard
     }
     
     // MARK: - Export Functions
