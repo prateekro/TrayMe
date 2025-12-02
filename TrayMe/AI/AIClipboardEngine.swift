@@ -77,6 +77,60 @@ class AIClipboardEngine: ObservableObject {
     /// Text transformer for smart transformations
     let textTransformer = TextTransformer.shared
     
+    // MARK: - Pre-compiled Regex Patterns for Performance
+    
+    /// Pre-compiled URL pattern
+    private let urlRegex: NSRegularExpression? = {
+        try? NSRegularExpression(pattern: #"^(https?|ftp)://[^\s/$.?#].[^\s]*$"#, options: .caseInsensitive)
+    }()
+    
+    /// Pre-compiled email pattern
+    private let emailRegex: NSRegularExpression? = {
+        try? NSRegularExpression(pattern: #"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$"#, options: .caseInsensitive)
+    }()
+    
+    /// Pre-compiled phone pattern
+    private let phoneRegex: NSRegularExpression? = {
+        try? NSRegularExpression(pattern: #"^[\+]?[(]?[0-9]{1,3}[)]?[-\s\.]?[(]?[0-9]{1,4}[)]?[-\s\.]?[0-9]{1,4}[-\s\.]?[0-9]{1,9}$"#, options: [])
+    }()
+    
+    /// Pre-compiled credential patterns
+    private let credentialPatterns: [NSRegularExpression] = {
+        let patterns = [
+            #"^(sk|pk|api|key|token|secret|password|pwd|pass)[_-]?[a-zA-Z0-9]{16,}$"#,  // API keys
+            #"^[A-Za-z0-9+/]{32,}={0,2}$"#,  // Base64 encoded secrets
+            #"^ghp_[a-zA-Z0-9]{36}$"#,  // GitHub personal access token
+            #"^xox[baprs]-[0-9]{10,13}-[0-9]{10,13}[a-zA-Z0-9-]*$"#,  // Slack tokens
+            #"^AKIA[0-9A-Z]{16}$"#,  // AWS access key
+            #"^-----BEGIN (RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----"#,  // Private keys
+        ]
+        return patterns.compactMap { try? NSRegularExpression(pattern: $0, options: .caseInsensitive) }
+    }()
+    
+    /// Pre-compiled markdown patterns
+    private let markdownPatterns: [NSRegularExpression] = {
+        let patterns = [
+            #"^#{1,6}\s"#,  // Headers
+            #"\*\*[^*]+\*\*"#,  // Bold
+            #"\*[^*]+\*"#,  // Italic
+            #"\[.+\]\(.+\)"#,  // Links
+            #"^\s*[-*+]\s"#,  // Lists
+            #"^\s*\d+\.\s"#,  // Numbered lists
+            #"```"#,  // Code blocks
+            #"^\s*>"#,  // Blockquotes
+        ]
+        return patterns.compactMap { try? NSRegularExpression(pattern: $0, options: .anchorsMatchLines) }
+    }()
+    
+    /// Pre-compiled address patterns
+    private let addressPatterns: [NSRegularExpression] = {
+        let patterns = [
+            #"\d+\s+[\w\s]+(?:Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Drive|Dr|Lane|Ln|Way|Court|Ct)"#,
+            #"[A-Z]{2}\s+\d{5}(?:-\d{4})?"#,  // US ZIP code
+        ]
+        return patterns.compactMap { try? NSRegularExpression(pattern: $0, options: .caseInsensitive) }
+    }()
+    
     init() {
         // Initialize NLP tagger with relevant tag schemes
         tagger = NLTagger(tagSchemes: [.nameType, .lexicalClass, .language])
@@ -157,32 +211,22 @@ class AIClipboardEngine: ObservableObject {
     // MARK: - Pattern Detection
     
     private func isURL(_ content: String) -> Bool {
-        // Fast regex check for URLs
-        let urlPattern = #"^(https?|ftp)://[^\s/$.?#].[^\s]*$"#
-        if let regex = try? NSRegularExpression(pattern: urlPattern, options: .caseInsensitive) {
-            let range = NSRange(content.startIndex..., in: content)
-            return regex.firstMatch(in: content, options: [], range: range) != nil
-        }
-        return false
+        // Use pre-compiled regex for performance
+        guard let regex = urlRegex else { return false }
+        let range = NSRange(content.startIndex..., in: content)
+        return regex.firstMatch(in: content, options: [], range: range) != nil
     }
     
     private func isEmail(_ content: String) -> Bool {
-        let emailPattern = #"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$"#
-        if let regex = try? NSRegularExpression(pattern: emailPattern, options: .caseInsensitive) {
-            let range = NSRange(content.startIndex..., in: content)
-            return regex.firstMatch(in: content, options: [], range: range) != nil
-        }
-        return false
+        guard let regex = emailRegex else { return false }
+        let range = NSRange(content.startIndex..., in: content)
+        return regex.firstMatch(in: content, options: [], range: range) != nil
     }
     
     private func isPhoneNumber(_ content: String) -> Bool {
-        // Match various phone formats
-        let phonePattern = #"^[\+]?[(]?[0-9]{1,3}[)]?[-\s\.]?[(]?[0-9]{1,4}[)]?[-\s\.]?[0-9]{1,4}[-\s\.]?[0-9]{1,9}$"#
-        if let regex = try? NSRegularExpression(pattern: phonePattern, options: []) {
-            let range = NSRange(content.startIndex..., in: content)
-            return regex.firstMatch(in: content, options: [], range: range) != nil
-        }
-        return false
+        guard let regex = phoneRegex else { return false }
+        let range = NSRange(content.startIndex..., in: content)
+        return regex.firstMatch(in: content, options: [], range: range) != nil
     }
     
     private func isJSON(_ content: String) -> Bool {
@@ -199,22 +243,11 @@ class AIClipboardEngine: ObservableObject {
     }
     
     private func isCredential(_ content: String) -> Bool {
-        // Check for common credential patterns
-        let credentialPatterns = [
-            #"^(sk|pk|api|key|token|secret|password|pwd|pass)[_-]?[a-zA-Z0-9]{16,}$"#,  // API keys
-            #"^[A-Za-z0-9+/]{32,}={0,2}$"#,  // Base64 encoded secrets
-            #"^ghp_[a-zA-Z0-9]{36}$"#,  // GitHub personal access token
-            #"^xox[baprs]-[0-9]{10,13}-[0-9]{10,13}[a-zA-Z0-9-]*$"#,  // Slack tokens
-            #"^AKIA[0-9A-Z]{16}$"#,  // AWS access key
-            #"^-----BEGIN (RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----"#,  // Private keys
-        ]
-        
-        for pattern in credentialPatterns {
-            if let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive) {
-                let range = NSRange(content.startIndex..., in: content)
-                if regex.firstMatch(in: content, options: [], range: range) != nil {
-                    return true
-                }
+        // Use pre-compiled patterns for performance
+        let range = NSRange(content.startIndex..., in: content)
+        for regex in credentialPatterns {
+            if regex.firstMatch(in: content, options: [], range: range) != nil {
+                return true
             }
         }
         return false
@@ -252,24 +285,11 @@ class AIClipboardEngine: ObservableObject {
     }
     
     private func isMarkdown(_ content: String) -> Bool {
-        // Check for markdown patterns
-        let markdownPatterns = [
-            #"^#{1,6}\s"#,  // Headers
-            #"\*\*[^*]+\*\*"#,  // Bold
-            #"\*[^*]+\*"#,  // Italic
-            #"\[.+\]\(.+\)"#,  // Links
-            #"^\s*[-*+]\s"#,  // Lists
-            #"^\s*\d+\.\s"#,  // Numbered lists
-            #"```"#,  // Code blocks
-            #"^\s*>"#,  // Blockquotes
-        ]
-        
-        for pattern in markdownPatterns {
-            if let regex = try? NSRegularExpression(pattern: pattern, options: .anchorsMatchLines) {
-                let range = NSRange(content.startIndex..., in: content)
-                if regex.firstMatch(in: content, options: [], range: range) != nil {
-                    return true
-                }
+        // Use pre-compiled patterns for performance
+        let range = NSRange(content.startIndex..., in: content)
+        for regex in markdownPatterns {
+            if regex.firstMatch(in: content, options: [], range: range) != nil {
+                return true
             }
         }
         return false
@@ -289,19 +309,12 @@ class AIClipboardEngine: ObservableObject {
             return true
         }
         
-        // Also check for address patterns
-        let addressPatterns = [
-            #"\d+\s+[\w\s]+(?:Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Drive|Dr|Lane|Ln|Way|Court|Ct)"#,
-            #"[A-Z]{2}\s+\d{5}(?:-\d{4})?"#,  // US ZIP code
-        ]
-        
+        // Also check for address patterns using pre-compiled regex
         if !foundPlaceName {
-            for pattern in addressPatterns {
-                if let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive) {
-                    let range = NSRange(content.startIndex..., in: content)
-                    if regex.firstMatch(in: content, options: [], range: range) != nil {
-                        return true
-                    }
+            let range = NSRange(content.startIndex..., in: content)
+            for regex in addressPatterns {
+                if regex.firstMatch(in: content, options: [], range: range) != nil {
+                    return true
                 }
             }
         }
