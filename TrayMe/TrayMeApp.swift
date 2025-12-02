@@ -39,6 +39,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let appStartTime = CFAbsoluteTimeGetCurrent()
         print("🚀 TrayMe starting...")
         
+        // Connect clipboard manager to app settings for exclusion rules
+        clipboardManager.appSettings = appSettings
+        
         // Hide dock icon for menu bar app behavior
         NSApp.setActivationPolicy(.accessory)
         

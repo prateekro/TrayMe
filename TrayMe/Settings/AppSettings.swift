@@ -30,6 +30,25 @@ class AppSettings: ObservableObject {
         didSet { save() }
     }
     
+    /// List of excluded app bundle identifiers - clipboard won't be tracked when copying from these apps
+    @Published var excludedAppBundleIds: Set<String> = [] {
+        didSet { save() }
+    }
+    
+    /// Default excluded apps (password managers and sensitive apps)
+    static let defaultExcludedApps: [ExcludedApp] = [
+        ExcludedApp(bundleId: "com.agilebits.onepassword7", name: "1Password 7"),
+        ExcludedApp(bundleId: "com.1password.1password", name: "1Password 8"),
+        ExcludedApp(bundleId: "com.lastpass.LastPass", name: "LastPass"),
+        ExcludedApp(bundleId: "com.bitwarden.desktop", name: "Bitwarden"),
+        ExcludedApp(bundleId: "com.dashlane.Dashlane", name: "Dashlane"),
+        ExcludedApp(bundleId: "com.apple.keychainaccess", name: "Keychain Access"),
+        ExcludedApp(bundleId: "org.keepassxc.keepassxc", name: "KeePassXC"),
+        ExcludedApp(bundleId: "com.enpass.Enpass", name: "Enpass"),
+        ExcludedApp(bundleId: "com.nordpass.NordPass", name: "NordPass"),
+        ExcludedApp(bundleId: "com.roboform.roboform", name: "RoboForm"),
+    ]
+    
     @Published var filesMaxStorage = 50 {
         didSet { save() }
     }
@@ -80,6 +99,9 @@ class AppSettings: ObservableObject {
         if let saved = UserDefaults.standard.object(forKey: "clipboardEnabled") as? Bool {
             clipboardEnabled = saved
         }
+        if let savedArray = UserDefaults.standard.array(forKey: "excludedAppBundleIds") as? [String] {
+            excludedAppBundleIds = Set(savedArray)
+        }
         if let saved = UserDefaults.standard.object(forKey: "filesMaxStorage") as? Int {
             filesMaxStorage = saved
         }
@@ -115,6 +137,7 @@ class AppSettings: ObservableObject {
         UserDefaults.standard.set(clipboardMaxHistory, forKey: "clipboardMaxHistory")
         UserDefaults.standard.set(ignorePasswordManagers, forKey: "ignorePasswordManagers")
         UserDefaults.standard.set(clipboardEnabled, forKey: "clipboardEnabled")
+        UserDefaults.standard.set(Array(excludedAppBundleIds), forKey: "excludedAppBundleIds")
         UserDefaults.standard.set(filesMaxStorage, forKey: "filesMaxStorage")
         UserDefaults.standard.set(filesEnabled, forKey: "filesEnabled")
         UserDefaults.standard.set(notesEnabled, forKey: "notesEnabled")
@@ -123,4 +146,35 @@ class AppSettings: ObservableObject {
         UserDefaults.standard.set(panelHeight, forKey: "panelHeight")
         UserDefaults.standard.set(defaultTab, forKey: "defaultTab")
     }
+    
+    /// Check if an app's clipboard content should be excluded
+    func isAppExcluded(bundleId: String?) -> Bool {
+        guard let bundleId = bundleId else { return false }
+        return excludedAppBundleIds.contains(bundleId)
+    }
+    
+    /// Add an app to the exclusion list
+    func excludeApp(_ bundleId: String) {
+        excludedAppBundleIds.insert(bundleId)
+    }
+    
+    /// Remove an app from the exclusion list
+    func includeApp(_ bundleId: String) {
+        excludedAppBundleIds.remove(bundleId)
+    }
+    
+    /// Add all default password managers to exclusion list
+    func excludeAllDefaultApps() {
+        for app in Self.defaultExcludedApps {
+            excludedAppBundleIds.insert(app.bundleId)
+        }
+    }
+}
+
+/// Represents an app that can be excluded from clipboard tracking
+struct ExcludedApp: Identifiable, Hashable {
+    let bundleId: String
+    let name: String
+    
+    var id: String { bundleId }
 }
