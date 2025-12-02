@@ -1,0 +1,113 @@
+<Window x:Class="TrayMe.Windows.Views.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="TrayMe Settings" 
+        Width="500" Height="450"
+        WindowStartupLocation="CenterScreen"
+        ResizeMode="NoResize"
+        Background="{DynamicResource WindowBackground}">
+    
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        
+        <!-- Header -->
+        <StackPanel Grid.Row="0" Margin="0,0,0,20">
+            <TextBlock Text="⚙️ Settings" FontSize="24" FontWeight="Bold"/>
+            <TextBlock Text="Configure TrayMe preferences" FontSize="12"
+                       Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,4,0,0"/>
+        </StackPanel>
+        
+        <!-- Settings Content -->
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+            <StackPanel>
+                <!-- General Section -->
+                <TextBlock Text="General" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,10"/>
+                <Border Background="{DynamicResource CardBackground}" CornerRadius="8" Padding="16" Margin="0,0,0,20">
+                    <StackPanel>
+                        <CheckBox x:Name="MouseActivationCheckBox" Content="Enable mouse activation (move to top of screen)"
+                                  Margin="0,0,0,12" Checked="Setting_Changed" Unchecked="Setting_Changed"/>
+                        
+                        <CheckBox x:Name="HotkeyActivationCheckBox" Content="Enable hotkey activation"
+                                  Margin="0,0,0,12" Checked="Setting_Changed" Unchecked="Setting_Changed"/>
+                        
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                            <TextBlock Text="Hotkey: " VerticalAlignment="Center"/>
+                            <TextBlock Text="Ctrl+Shift+U" FontWeight="SemiBold" VerticalAlignment="Center"
+                                       Foreground="{DynamicResource AccentBrush}"/>
+                        </StackPanel>
+                        
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="Panel Size: " VerticalAlignment="Center"/>
+                            <TextBox x:Name="PanelWidthBox" Width="60" Margin="8,0" Text="900"
+                                     TextChanged="PanelSize_Changed"/>
+                            <TextBlock Text="x" VerticalAlignment="Center"/>
+                            <TextBox x:Name="PanelHeightBox" Width="60" Margin="8,0" Text="400"
+                                     TextChanged="PanelSize_Changed"/>
+                            <TextBlock Text="px" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+                
+                <!-- Clipboard Section -->
+                <TextBlock Text="Clipboard" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,10"/>
+                <Border Background="{DynamicResource CardBackground}" CornerRadius="8" Padding="16" Margin="0,0,0,20">
+                    <StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                            <TextBlock Text="Maximum history items: " VerticalAlignment="Center"/>
+                            <ComboBox x:Name="MaxHistoryCombo" Width="80" SelectionChanged="MaxHistory_Changed">
+                                <ComboBoxItem Content="25"/>
+                                <ComboBoxItem Content="50"/>
+                                <ComboBoxItem Content="100"/>
+                                <ComboBoxItem Content="200"/>
+                            </ComboBox>
+                        </StackPanel>
+                        
+                        <CheckBox x:Name="IgnorePasswordManagersCheckBox" 
+                                  Content="Ignore password manager clipboard content"
+                                  Margin="0,0,0,12" Checked="Setting_Changed" Unchecked="Setting_Changed"/>
+                        
+                        <CheckBox x:Name="ClipboardEnabledCheckBox" Content="Enable clipboard monitoring"
+                                  Checked="Setting_Changed" Unchecked="Setting_Changed"/>
+                    </StackPanel>
+                </Border>
+                
+                <!-- Files Section -->
+                <TextBlock Text="Files" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,10"/>
+                <Border Background="{DynamicResource CardBackground}" CornerRadius="8" Padding="16" Margin="0,0,0,20">
+                    <StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                            <TextBlock Text="Maximum stored files: " VerticalAlignment="Center"/>
+                            <ComboBox x:Name="MaxFilesCombo" Width="80" SelectionChanged="MaxFiles_Changed">
+                                <ComboBoxItem Content="25"/>
+                                <ComboBoxItem Content="50"/>
+                                <ComboBoxItem Content="75"/>
+                                <ComboBoxItem Content="100"/>
+                            </ComboBox>
+                        </StackPanel>
+                        
+                        <CheckBox x:Name="FilesEnabledCheckBox" Content="Enable files hub"
+                                  Checked="Setting_Changed" Unchecked="Setting_Changed"/>
+                    </StackPanel>
+                </Border>
+                
+                <!-- Notes Section -->
+                <TextBlock Text="Notes" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,10"/>
+                <Border Background="{DynamicResource CardBackground}" CornerRadius="8" Padding="16">
+                    <StackPanel>
+                        <CheckBox x:Name="NotesEnabledCheckBox" Content="Enable notes"
+                                  Checked="Setting_Changed" Unchecked="Setting_Changed"/>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+        
+        <!-- Footer -->
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,20,0,0">
+            <Button Content="Close" Width="80" Click="Close_Click" Style="{StaticResource PrimaryButtonStyle}"/>
+        </StackPanel>
+    </Grid>
+</Window>

@@ -1,0 +1,72 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+*.xcuserstate
+
+# Xcode
+build/
+DerivedData/
+*.pbxuser
+!default.pbxuser
+*.mode1v3
+!default.mode1v3
+*.mode2v3
+!default.mode2v3
+*.perspectivev3
+!default.perspectivev3
+xcuserdata/
+*.moved-aside
+*.xccheckout
+*.xcscmblueprint
+
+# .NET / C#
+bin/
+obj/
+*.user
+*.suo
+*.userprefs
+*.vs/
+.vs/
+*.dll
+*.exe
+*.pdb
+*.cache
+*.resources
+*.nupkg
+packages/
+project.lock.json
+*.log
+
+# NuGet
+*.nupkg
+.nuget/
+NuGet.Config
+
+# Build results
+[Dd]ebug/
+[Dd]ebugPublic/
+[Rr]elease/
+[Rr]eleases/
+x64/
+x86/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+[Bb]in/
+[Oo]bj/
+[Oo]ut/
+
+# IDE
+.idea/
+*.swp
+*.swo
+*~
+
+# Node (if any)
+node_modules/
+
+# Misc
+*.tmp
+*.temp
+Thumbs.db

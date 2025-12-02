@@ -1,0 +1,228 @@
+<UserControl x:Class="TrayMe.Windows.Views.FilesView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             AllowDrop="True" Drop="UserControl_Drop" DragEnter="UserControl_DragEnter"
+             DragLeave="UserControl_DragLeave">
+    
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        
+        <!-- Search Bar -->
+        <Border Grid.Row="0" Margin="12" Background="{DynamicResource SearchBoxBackground}" 
+                CornerRadius="6" Padding="10,8">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                
+                <TextBlock Grid.Column="0" Text="🔍" FontSize="14" 
+                           VerticalAlignment="Center" Margin="0,0,8,0" Opacity="0.6"/>
+                
+                <TextBox x:Name="SearchBox" Grid.Column="1" 
+                         Style="{StaticResource SearchTextBoxStyle}"
+                         TextChanged="SearchBox_TextChanged"/>
+                
+                <Button x:Name="ClearSearchButton" Grid.Column="2" 
+                        Style="{StaticResource IconButtonStyle}"
+                        Click="ClearSearch_Click" Visibility="Collapsed">
+                    <TextBlock Text="✕" FontSize="12"/>
+                </Button>
+            </Grid>
+        </Border>
+        
+        <!-- Drop Zone / File Grid -->
+        <Grid Grid.Row="1">
+            <!-- Empty State / Drop Zone -->
+            <Border x:Name="DropZone" Visibility="Visible">
+                <Border Margin="20" BorderBrush="{DynamicResource DividerBrush}" 
+                        BorderThickness="2" CornerRadius="12"
+                        Background="Transparent">
+                    <Border.Style>
+                        <Style TargetType="Border">
+                            <Setter Property="BorderBrush" Value="{DynamicResource DividerBrush}"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding ElementName=DropZone, Path=Tag}" Value="Dragging">
+                                    <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Border.Style>
+                    
+                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                        <TextBlock Text="📥" FontSize="48" HorizontalAlignment="Center"
+                                   Opacity="0.6"/>
+                        <TextBlock Text="Drop files here" FontSize="16" FontWeight="Medium"
+                                   HorizontalAlignment="Center" Margin="0,12,0,8"/>
+                        <TextBlock Text="Files will be temporarily stored for easy access" 
+                                   FontSize="12" Foreground="{DynamicResource SecondaryTextBrush}"
+                                   HorizontalAlignment="Center" TextWrapping="Wrap"
+                                   MaxWidth="250" TextAlignment="Center"/>
+                    </StackPanel>
+                </Border>
+            </Border>
+            
+            <!-- Files Grid -->
+            <ScrollViewer x:Name="FilesGrid" Visibility="Collapsed"
+                          VerticalScrollBarVisibility="Auto">
+                <ItemsControl x:Name="FilesList" Margin="12">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <WrapPanel/>
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Border x:Name="FileCard" Background="{DynamicResource CardBackground}" 
+                                    CornerRadius="8" Margin="6" Padding="8" Width="100" Height="140"
+                                    Cursor="Hand" MouseEnter="FileCard_MouseEnter"
+                                    MouseLeave="FileCard_MouseLeave"
+                                    MouseLeftButtonUp="FileCard_Click"
+                                    MouseMove="FileCard_MouseMove">
+                                <Border.ContextMenu>
+                                    <ContextMenu>
+                                        <MenuItem Header="Open" Click="OpenFile_Click"/>
+                                        <MenuItem Header="Show in Explorer" Click="RevealFile_Click"/>
+                                        <MenuItem x:Name="CopyImageMenuItem" Header="Copy Image" 
+                                                  Click="CopyImage_Click"/>
+                                        <Separator/>
+                                        <MenuItem Header="Delete" Click="DeleteFile_Click"/>
+                                    </ContextMenu>
+                                </Border.ContextMenu>
+                                
+                                <StackPanel>
+                                    <!-- File Icon/Thumbnail with Badge -->
+                                    <Grid Width="80" Height="60">
+                                        <Image x:Name="FileIcon" Width="80" Height="60" 
+                                               Stretch="Uniform"/>
+                                        
+                                        <!-- Storage Type Badge -->
+                                        <Border x:Name="StorageBadge" HorizontalAlignment="Right" 
+                                                VerticalAlignment="Top" CornerRadius="3"
+                                                Padding="4,2" Margin="-2,2">
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock x:Name="BadgeIcon" FontSize="8"/>
+                                                <TextBlock x:Name="BadgeText" FontSize="7" 
+                                                           FontWeight="SemiBold" Margin="2,0,0,0"/>
+                                            </StackPanel>
+                                        </Border>
+                                    </Grid>
+                                    
+                                    <!-- File Name -->
+                                    <TextBlock Text="{Binding Name}" FontSize="11" 
+                                               TextTrimming="CharacterEllipsis"
+                                               TextAlignment="Center" MaxHeight="28"
+                                               TextWrapping="Wrap" Margin="0,8,0,0"
+                                               ToolTip="{Binding Name}"/>
+                                    
+                                    <!-- File Size -->
+                                    <TextBlock Text="{Binding FormattedSize}" FontSize="9"
+                                               Foreground="{DynamicResource SecondaryTextBrush}"
+                                               TextAlignment="Center" Margin="0,4,0,0"/>
+                                    
+                                    <!-- Actions (visible on hover) -->
+                                    <StackPanel x:Name="ActionsPanel" Orientation="Horizontal" 
+                                                HorizontalAlignment="Center" Visibility="Collapsed"
+                                                Margin="0,4,0,0">
+                                        <Button Style="{StaticResource SmallIconButtonStyle}" 
+                                                Click="OpenFile_Click" ToolTip="Open">
+                                            <TextBlock Text="📂" FontSize="12"/>
+                                        </Button>
+                                        <Button x:Name="CopyImageButton" Style="{StaticResource SmallIconButtonStyle}" 
+                                                Click="CopyImage_Click" ToolTip="Copy Image"
+                                                Visibility="{Binding FileType, Converter={StaticResource ImageFileToVisibilityConverter}}">
+                                            <TextBlock Text="📋" FontSize="12"/>
+                                        </Button>
+                                        <Button Style="{StaticResource SmallIconButtonStyle}" 
+                                                Click="RevealFile_Click" ToolTip="Show in Explorer">
+                                            <TextBlock Text="📁" FontSize="12"/>
+                                        </Button>
+                                        <Button Style="{StaticResource SmallIconButtonStyle}" 
+                                                Click="DeleteFile_Click" ToolTip="Delete">
+                                            <TextBlock Text="🗑️" FontSize="12"/>
+                                        </Button>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+                            <DataTemplate.Triggers>
+                                <DataTrigger Binding="{Binding IsCopied}" Value="True">
+                                    <Setter TargetName="StorageBadge" Property="Background" Value="#22C55E"/>
+                                    <Setter TargetName="BadgeIcon" Property="Text" Value="📦"/>
+                                    <Setter TargetName="BadgeText" Property="Text" Value="Stored"/>
+                                    <Setter TargetName="BadgeIcon" Property="Foreground" Value="White"/>
+                                    <Setter TargetName="BadgeText" Property="Foreground" Value="White"/>
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding IsCopied}" Value="False">
+                                    <Setter TargetName="StorageBadge" Property="Background" Value="#F97316"/>
+                                    <Setter TargetName="BadgeIcon" Property="Text" Value="🔗"/>
+                                    <Setter TargetName="BadgeText" Property="Text" Value="Ref"/>
+                                    <Setter TargetName="BadgeIcon" Property="Foreground" Value="White"/>
+                                    <Setter TargetName="BadgeText" Property="Foreground" Value="White"/>
+                                </DataTrigger>
+                            </DataTemplate.Triggers>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+        </Grid>
+        
+        <!-- Footer -->
+        <Border Grid.Row="2" Background="{DynamicResource FooterBackground}" Padding="12,8">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                
+                <!-- File Count -->
+                <StackPanel Grid.Column="0">
+                    <TextBlock x:Name="FileCountText" Text="0/50 files" FontSize="11"
+                               Foreground="{DynamicResource SecondaryTextBrush}"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,2,0,0">
+                        <TextBlock Text="📦 Stored" FontSize="8" Foreground="#22C55E" Margin="0,0,8,0"/>
+                        <TextBlock Text="🔗 Ref" FontSize="8" Foreground="#F97316"/>
+                    </StackPanel>
+                </StackPanel>
+                
+                <!-- Copy Files Toggle -->
+                <CheckBox x:Name="CopyFilesCheckBox" Grid.Column="2" Content="Copy files" 
+                          FontSize="11" VerticalAlignment="Center" Margin="0,0,12,0"
+                          Checked="CopyFiles_Changed" Unchecked="CopyFiles_Changed"
+                          ToolTip="Copy files to app storage instead of just referencing them"/>
+                
+                <!-- Manage Menu -->
+                <Menu Grid.Column="3" Background="Transparent">
+                    <MenuItem Header="⚙ Manage" FontSize="11" 
+                              Foreground="{DynamicResource SecondaryTextBrush}">
+                        <MenuItem Header="Open Storage Folder" Click="OpenStorage_Click"/>
+                        <MenuItem Header="File Limit">
+                            <MenuItem Header="25 files" Click="SetLimit_Click" Tag="25"/>
+                            <MenuItem Header="50 files" Click="SetLimit_Click" Tag="50"/>
+                            <MenuItem Header="75 files" Click="SetLimit_Click" Tag="75"/>
+                            <MenuItem Header="100 files" Click="SetLimit_Click" Tag="100"/>
+                        </MenuItem>
+                        <Separator/>
+                        <MenuItem Header="Refresh File Status" Click="RefreshStatus_Click"/>
+                        <Separator/>
+                        <MenuItem Header="Delete...">
+                            <MenuItem Header="All References" Foreground="#F97316" 
+                                      Click="ClearReferences_Click"/>
+                            <MenuItem Header="All Stored Files" Foreground="#22C55E" 
+                                      Click="ClearStored_Click"/>
+                            <Separator/>
+                            <MenuItem Header="Everything" Foreground="Red" 
+                                      Click="ClearAll_Click"/>
+                        </MenuItem>
+                    </MenuItem>
+                </Menu>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

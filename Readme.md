@@ -1,17 +1,24 @@
-# TrayMe - Unclutter Clone for macOS
+# TrayMe - Unclutter Clone
 
-> A native macOS productivity app built with Swift & SwiftUI  
+> A cross-platform productivity app with native implementations for **macOS** and **Windows**  
 > **Status:** ✅ Complete & Ready to Build
+
+## 📱 Platform Support
+
+| Platform | Technology | Status |
+|----------|------------|--------|
+| **macOS** | Swift & SwiftUI | ✅ Complete |
+| **Windows** | C# & WPF | ✅ Complete |
 
 ## 🎯 What is TrayMe?
 
-TrayMe is a **3-in-1 productivity tool** that slides down from the top of your Mac screen, giving you instant access to:
+TrayMe is a **3-in-1 productivity tool** that slides down from the top of your screen, giving you instant access to:
 
 1. **📋 Clipboard Manager** - Never lose what you copied
 2. **📁 Files Hub** - Temporary file storage & quick access  
 3. **📝 Quick Notes** - Instant notepad without opening apps
 
-Built with native Apple technologies for maximum performance and minimal resource usage.
+Built with native technologies for maximum performance and minimal resource usage on each platform.
 
 ---
 
@@ -49,25 +56,27 @@ Built with native Apple technologies for maximum performance and minimal resourc
 - ✅ Clean, distraction-free editor
 
 ### System Integration
-- ✅ Top-screen mouse activation
-- ✅ Global hotkey (Cmd+Shift+U)
-- ✅ Menu bar icon
-- ✅ Works across all Spaces
+- ✅ Top-screen mouse activation (macOS)
+- ✅ Global hotkey (Cmd+Shift+U on macOS, Ctrl+Shift+U on Windows)
+- ✅ Menu bar / System tray icon
+- ✅ Works across all Spaces (macOS)
 - ✅ Full-screen app compatible
 
 ---
 
 ## 🚀 Quick Start
 
-### Prerequisites
+### macOS
+
+#### Prerequisites
 - macOS 12.0 (Monterey) or later
 - Xcode 14.0+
 - Apple Developer account (free tier works)
 
-### Setup (2 minutes)
+#### Setup (2 minutes)
 
 ```bash
-cd /Users/prateekro/Documents/projects/TrayMe
+cd TrayMe
 ./setup.sh
 ```
 
@@ -75,13 +84,32 @@ Then follow the printed instructions to create your Xcode project.
 
 **OR** see **[BUILD_GUIDE.md](BUILD_GUIDE.md)** for detailed step-by-step instructions.
 
+### Windows
+
+#### Prerequisites
+- Windows 10/11
+- .NET 8.0 SDK or later
+- Visual Studio 2022 (recommended)
+
+#### Build and Run
+
+```bash
+cd TrayMe.Windows
+dotnet restore
+dotnet build
+dotnet run
+```
+
+Or open `TrayMe.Windows/TrayMe.Windows.csproj` in Visual Studio and press F5.
+
 ---
 
 ## 📖 Documentation
 
 | Document | Description |
 |----------|-------------|
-| **[BUILD_GUIDE.md](BUILD_GUIDE.md)** | Complete build & setup instructions |
+| **[TrayMe.Windows/README.md](TrayMe.Windows/README.md)** | Windows-specific documentation |
+| **[BUILD_GUIDE.md](BUILD_GUIDE.md)** | macOS build & setup instructions |
 | **[PERFORMANCE.md](PERFORMANCE.md)** | Performance optimizations & benchmarks |
 | **[DEVELOPMENT_SUMMARY.md](DEVELOPMENT_SUMMARY.md)** | Architecture & implementation details |
 | **[QUICKSTART.md](QUICKSTART.md)** | Quick reference for common tasks |
@@ -92,14 +120,20 @@ Then follow the printed instructions to create your Xcode project.
 
 ## 🏗️ Architecture
 
+### macOS
 **Language:** Swift 5.9+  
 **UI Framework:** SwiftUI (with AppKit bridge)  
 **Platform:** macOS 12.0+
 
-### Why Swift & SwiftUI?
+### Windows
+**Language:** C# 12  
+**UI Framework:** WPF  
+**Platform:** Windows 10/11, .NET 8.0+
+
+### Why Native Technologies?
 ✅ **Fast execution** - Native compilation  
 ✅ **Minimal resources** - ~20MB memory, <1% CPU  
-✅ **Fresh UI** - Modern macOS design with blur effects  
+✅ **Fresh UI** - Modern platform-native design
 ✅ **System integration** - Direct access to macOS APIs
 
 ### Project Structure
