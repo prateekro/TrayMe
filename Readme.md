@@ -87,6 +87,7 @@ Then follow the printed instructions to create your Xcode project.
 | **[QUICKSTART.md](QUICKSTART.md)** | Quick reference for common tasks |
 | **[PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md)** | Code organization & file structure |
 | **[UI_DESIGN.md](UI_DESIGN.md)** | UI/UX specifications & design |
+| **[rag_system/README.md](rag_system/README.md)** | 🆕 RAG system for AI-powered repository search |
 
 ---
 
@@ -262,6 +263,7 @@ xcodebuild -scheme TrayMe -configuration Debug
 - [x] Global hotkey support (Cmd+Shift+U)
 - [x] Settings panel with customization
 - [x] Full-text search across all tabs
+- [x] **RAG System** - AI-powered repository search and retrieval
 
 ### Future Enhancements ⏳
 - [ ] iCloud sync for notes
@@ -270,6 +272,46 @@ xcodebuild -scheme TrayMe -configuration Debug
 - [ ] Code syntax highlighting
 - [ ] Custom themes
 - [ ] Export/import data
+
+---
+
+## 🤖 RAG System (NEW!)
+
+TrayMe now includes a **Retrieval-Augmented Generation (RAG) system** for AI-powered repository search and knowledge retrieval.
+
+### Features
+- ✅ **Vector database** for fast semantic search across all repository files
+- ✅ **Multiple embedding providers** (OpenAI, Cohere, or local models)
+- ✅ **Smart text chunking** preserves code structure and context
+- ✅ **LLM integration** for repository-aware Q&A
+- ✅ **Python API** for easy integration with AI tools
+- ✅ **Fast retrieval** optimized for low latency (<300ms)
+
+### Quick Start
+
+```bash
+cd rag_system
+
+# Setup (installs dependencies)
+./setup.sh
+
+# Configure API key
+echo "OPENAI_API_KEY=sk-your-key" >> config/.env
+
+# Index repository
+python scripts/index_repository.py
+
+# Query
+python scripts/query.py "How does clipboard management work?"
+```
+
+### Use Cases
+- 📚 **Documentation search**: Find relevant docs instantly
+- 🔍 **Code discovery**: Locate implementations semantically
+- 🤖 **AI assistance**: Provide context to LLMs about the codebase
+- 💡 **Learning**: Understand how features are implemented
+
+**See [rag_system/README.md](rag_system/README.md) for complete documentation.**
 
 ---
 
