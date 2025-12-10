@@ -16,6 +16,16 @@ from scripts.query import RAGQuery
 class RAGAPI:
     """High-level API for RAG system."""
     
+    # Default prompt template for Q&A
+    DEFAULT_QA_PROMPT = """You are a helpful assistant with access to a code repository. 
+Answer the following question based on the provided repository context.
+
+{context}
+
+Question: {question}
+
+Answer:"""
+    
     def __init__(self, config_path: Optional[str] = None):
         """
         Initialize RAG API.
@@ -65,13 +75,15 @@ class RAGAPI:
         """
         return self.rag_query.get_context_for_llm(query, max_tokens=max_tokens)
     
-    def answer_with_context(self, question: str, model: str = "gpt-4") -> str:
+    def answer_with_context(self, question: str, model: str = "gpt-4", 
+                           prompt_template: Optional[str] = None) -> str:
         """
         Answer question using retrieved context and LLM.
         
         Args:
             question: Question to answer
             model: LLM model to use (requires OpenAI API)
+            prompt_template: Custom prompt template (optional)
             
         Returns:
             Answer from LLM with repository context
@@ -79,15 +91,11 @@ class RAGAPI:
         # Get relevant context
         context = self.get_context(question)
         
+        # Use provided template or default
+        template = prompt_template or self.DEFAULT_QA_PROMPT
+        
         # Build prompt
-        prompt = f"""You are a helpful assistant with access to a code repository. 
-Answer the following question based on the provided repository context.
-
-{context}
-
-Question: {question}
-
-Answer:"""
+        prompt = template.format(context=context, question=question)
         
         # Call LLM (requires OpenAI)
         try:

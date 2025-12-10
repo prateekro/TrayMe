@@ -190,17 +190,17 @@ class TextChunker:
             # Try to break at sentence or paragraph boundary
             if end < len(text):
                 # Look for paragraph break
-                next_para = text.find('\n\n', end - 100, end + 100)
+                next_para = text.find('\n\n', max(0, end - 100), min(len(text), end + 100))
                 if next_para != -1:
                     end = next_para + 2
                 else:
                     # Look for sentence break
-                    next_sentence = text.find('. ', end - 50, end + 50)
+                    next_sentence = text.find('. ', max(0, end - 50), min(len(text), end + 50))
                     if next_sentence != -1:
                         end = next_sentence + 2
                     # Look for line break
-                    elif '\n' in text[end - 50:end + 50]:
-                        next_line = text.find('\n', end - 50, end + 50)
+                    elif '\n' in text[max(0, end - 50):min(len(text), end + 50)]:
+                        next_line = text.find('\n', max(0, end - 50), min(len(text), end + 50))
                         if next_line != -1:
                             end = next_line + 1
             

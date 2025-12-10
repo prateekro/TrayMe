@@ -65,9 +65,13 @@ class RepositoryIndexer:
         if ext not in self.config.supported_extensions:
             return False
         
+        # Normalize path for consistent matching
+        normalized_path = str(Path(file_path).as_posix())
+        
         # Check exclude patterns
         for pattern in self.config.exclude_patterns:
-            if fnmatch.fnmatch(file_path, pattern) or fnmatch.fnmatch(str(file_path), f"*/{pattern}"):
+            if fnmatch.fnmatch(normalized_path, pattern) or \
+               fnmatch.fnmatch(normalized_path, f"*/{pattern}"):
                 return False
         
         return True

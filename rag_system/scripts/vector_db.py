@@ -267,7 +267,8 @@ class VectorStore:
         results = self.db.search(query_embedding, top_k=top_k)
         
         # Filter by threshold if specified
+        # LanceDB returns lower distances for more similar items
         if threshold > 0.0:
-            results = [r for r in results if r.get('_distance', 0) <= (1 - threshold)]
+            results = [r for r in results if r.get('_distance', 1.0) <= (1 - threshold)]
         
         return results

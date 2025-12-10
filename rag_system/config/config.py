@@ -18,19 +18,18 @@ class Config:
         Args:
             config_path: Path to YAML config file. If None, uses default.
         """
-        # Load environment variables
-        env_path = Path(__file__).parent / '.env'
-        if env_path.exists():
-            load_dotenv(env_path)
-        
-        # Load YAML config
+        # Load YAML config first
         if config_path is None:
             config_path = Path(__file__).parent / 'config.yaml'
         
         with open(config_path, 'r') as f:
             self._config = yaml.safe_load(f)
         
-        # Override with environment variables if present
+        # Then load and apply environment variable overrides
+        env_path = Path(__file__).parent / '.env'
+        if env_path.exists():
+            load_dotenv(env_path)
+        
         self._load_env_overrides()
     
     def _load_env_overrides(self):
