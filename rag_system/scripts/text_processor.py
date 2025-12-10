@@ -189,20 +189,28 @@ class TextChunker:
             
             # Try to break at sentence or paragraph boundary
             if end < len(text):
-                # Look for paragraph break
-                next_para = text.find('\n\n', max(0, end - 100), min(len(text), end + 100))
-                if next_para != -1:
-                    end = next_para + 2
-                else:
-                    # Look for sentence break
-                    next_sentence = text.find('. ', max(0, end - 50), min(len(text), end + 50))
-                    if next_sentence != -1:
-                        end = next_sentence + 2
-                    # Look for line break
-                    elif '\n' in text[max(0, end - 50):min(len(text), end + 50)]:
-                        next_line = text.find('\n', max(0, end - 50), min(len(text), end + 50))
-                        if next_line != -1:
-                            end = next_line + 1
+                # Look for paragraph break (with valid range check)
+                search_start = max(0, end - 100)
+                search_end = min(len(text), end + 100)
+                if search_start < search_end:
+                    next_para = text.find('\n\n', search_start, search_end)
+                    if next_para != -1:
+                        end = next_para + 2
+                    else:
+                        # Look for sentence break
+                        search_start = max(0, end - 50)
+                        search_end = min(len(text), end + 50)
+                        if search_start < search_end:
+                            next_sentence = text.find('. ', search_start, search_end)
+                            if next_sentence != -1:
+                                end = next_sentence + 2
+                            # Look for line break
+                            else:
+                                search_text = text[search_start:search_end]
+                                if '\n' in search_text:
+                                    next_line = text.find('\n', search_start, search_end)
+                                    if next_line != -1:
+                                        end = next_line + 1
             
             chunk_text = text[start:end].strip()
             

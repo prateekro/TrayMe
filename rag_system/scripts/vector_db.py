@@ -268,7 +268,8 @@ class VectorStore:
         
         # Filter by threshold if specified
         # LanceDB returns lower distances for more similar items
+        # Convert distance to similarity and filter
         if threshold > 0.0:
-            results = [r for r in results if r.get('_distance', 1.0) <= (1 - threshold)]
+            results = [r for r in results if (1 - r.get('_distance', 1.0)) >= threshold]
         
         return results

@@ -68,10 +68,11 @@ class RepositoryIndexer:
         # Normalize path for consistent matching
         normalized_path = str(Path(file_path).as_posix())
         
-        # Check exclude patterns
+        # Check exclude patterns (combine patterns for efficiency)
         for pattern in self.config.exclude_patterns:
-            if fnmatch.fnmatch(normalized_path, pattern) or \
-               fnmatch.fnmatch(normalized_path, f"*/{pattern}"):
+            # Single check with wildcard pattern
+            full_pattern = f"**/{pattern}" if not pattern.startswith("*") else pattern
+            if fnmatch.fnmatch(normalized_path, full_pattern):
                 return False
         
         return True

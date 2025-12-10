@@ -43,7 +43,9 @@ echo ""
 
 # Install dependencies
 echo "Installing dependencies..."
-pip install --upgrade pip
+echo "  Upgrading pip..."
+pip install --upgrade pip --quiet
+echo "  Installing requirements..."
 pip install -r requirements.txt
 
 echo "✓ Dependencies installed"
