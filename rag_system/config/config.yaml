@@ -1,0 +1,48 @@
+# RAG System Configuration
+embedding:
+  provider: "openai"  # Options: openai, cohere, local
+  openai:
+    model: "text-embedding-3-small"
+    dimension: 1536
+  cohere:
+    model: "embed-english-v3.0"
+    dimension: 1024
+  local:
+    model: "all-MiniLM-L6-v2"
+    dimension: 384
+
+database:
+  path: "./rag_system/database/vector_db"
+  table_name: "repository_embeddings"
+
+indexing:
+  chunk_size: 1000
+  chunk_overlap: 200
+  max_file_size_mb: 10
+  supported_extensions:
+    - .swift
+    - .md
+    - .txt
+    - .json
+    - .plist
+    - .sh
+    - .yml
+    - .yaml
+    - .py
+  exclude_patterns:
+    - "*.xcodeproj/*"
+    - "*.xcassets/*"
+    - ".git/*"
+    - "*/database/*"
+    - "*.pyc"
+    - "__pycache__/*"
+
+retrieval:
+  top_k: 5
+  similarity_threshold: 0.7
+  rerank: false
+
+performance:
+  batch_size: 10
+  max_workers: 4
+  cache_embeddings: true
