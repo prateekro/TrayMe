@@ -1,0 +1,81 @@
+.app-container {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-header {
+  background-color: var(--color-bg-secondary);
+  border-bottom: 1px solid var(--color-border);
+  padding: 1rem 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 2rem;
+}
+
+.app-header h1 {
+  font-size: 1.5rem;
+  font-weight: 600;
+}
+
+.nav-tabs {
+  display: flex;
+  gap: 0.5rem;
+  flex: 1;
+}
+
+.nav-tabs button {
+  padding: 0.5rem 1rem;
+  background-color: transparent;
+  color: var(--color-text-secondary);
+  border-radius: var(--border-radius);
+  font-weight: 500;
+}
+
+.nav-tabs button:hover {
+  background-color: var(--color-bg-tertiary);
+  color: var(--color-text);
+}
+
+.nav-tabs button.active {
+  background-color: var(--color-primary);
+  color: white;
+}
+
+.command-palette-btn {
+  padding: 0.5rem 1rem;
+  background-color: var(--color-bg-tertiary);
+  color: var(--color-text-secondary);
+  border-radius: var(--border-radius);
+  font-weight: 500;
+  border: 1px solid var(--color-border);
+}
+
+.command-palette-btn:hover {
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  border-color: var(--color-primary);
+}
+
+.app-main {
+  flex: 1;
+  padding: 2rem;
+  overflow-y: auto;
+}
+
+.settings-placeholder {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 2rem;
+  background-color: var(--color-bg-secondary);
+  border-radius: var(--border-radius);
+}
+
+.settings-placeholder h2 {
+  margin-bottom: 1rem;
+}
+
+.settings-placeholder p {
+  color: var(--color-text-secondary);
+}

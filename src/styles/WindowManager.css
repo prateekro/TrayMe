@@ -1,0 +1,143 @@
+.window-manager {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.window-manager-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 2rem;
+}
+
+.window-manager-header h2 {
+  font-size: 1.5rem;
+}
+
+.refresh-btn {
+  padding: 0.5rem 1rem;
+  background-color: var(--color-primary);
+  color: white;
+  border-radius: var(--border-radius);
+  font-weight: 500;
+}
+
+.refresh-btn:hover {
+  background-color: var(--color-primary-hover);
+}
+
+.add-window-form {
+  background-color: var(--color-bg-secondary);
+  padding: 1.5rem;
+  border-radius: var(--border-radius);
+  margin-bottom: 2rem;
+}
+
+.add-window-form h3 {
+  margin-bottom: 1rem;
+  font-size: 1.1rem;
+}
+
+.form-row {
+  display: flex;
+  gap: 1rem;
+}
+
+.form-row input {
+  flex: 1;
+}
+
+.add-btn {
+  padding: 0.5rem 1.5rem;
+  background-color: var(--color-success);
+  color: white;
+  border-radius: var(--border-radius);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.add-btn:hover {
+  background-color: #22c55e;
+}
+
+.windows-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 1.5rem;
+}
+
+.empty-state {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: 4rem 2rem;
+  color: var(--color-text-secondary);
+}
+
+.empty-state-hint {
+  margin-top: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.window-card {
+  background-color: var(--color-bg-secondary);
+  border-radius: var(--border-radius);
+  padding: 1.5rem;
+  border: 1px solid var(--color-border);
+  transition: all 0.2s ease;
+}
+
+.window-card:hover {
+  border-color: var(--color-primary);
+  box-shadow: var(--shadow);
+}
+
+.window-card-header {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.window-icon {
+  font-size: 2rem;
+}
+
+.window-info {
+  flex: 1;
+}
+
+.window-info h4 {
+  font-size: 1.1rem;
+  margin-bottom: 0.25rem;
+}
+
+.window-info p {
+  color: var(--color-text-secondary);
+  font-size: 0.9rem;
+}
+
+.window-workspace {
+  padding: 0.5rem;
+  background-color: var(--color-bg-tertiary);
+  border-radius: 4px;
+  font-size: 0.85rem;
+  margin-bottom: 1rem;
+  color: var(--color-text-secondary);
+}
+
+.window-card-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.restore-btn {
+  flex: 1;
+  padding: 0.5rem;
+  background-color: var(--color-primary);
+  color: white;
+  border-radius: var(--border-radius);
+  font-weight: 500;
+}
+
+.restore-btn:hover {
+  background-color: var(--color-primary-hover);
+}
