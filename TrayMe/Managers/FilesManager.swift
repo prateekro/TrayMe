@@ -132,27 +132,40 @@ class FilesManager: ObservableObject {
     private func loadFromDisk() {
         let startTime = CFAbsoluteTimeGetCurrent()
         
+        guard let saveURL = saveURL else {
+            print("❌ FilesManager: Cannot load - invalid save URL")
+            return
+        }
+        
         guard FileManager.default.fileExists(atPath: saveURL.path) else {
             print("📁 No saved files to load")
             return 
         }
         
         // Load in background to avoid blocking app launch
-        DispatchQueue.global(qos: .userInitiated).async {
+        // Note: For large file lists, consider implementing a timeout in the future
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self = self else { return }
+            
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
             
-            guard let data = try? Data(contentsOf: self.saveURL),
-                  let decoded = try? decoder.decode([FileItem].self, from: data) else {
-                print("❌ Failed to load/decode files")
-                return
-            }
-            
-            let loadTime = CFAbsoluteTimeGetCurrent() - startTime
-            
-            DispatchQueue.main.async {
-                self.files = decoded
-                print("📁 Loaded \(decoded.count) files in \(String(format: "%.3f", loadTime))s")
+            do {
+                let data = try Data(contentsOf: saveURL)
+                let decoded = try decoder.decode([FileItem].self, from: data)
+                
+                let loadTime = CFAbsoluteTimeGetCurrent() - startTime
+                
+                DispatchQueue.main.async {
+                    self.files = decoded
+                    print("📁 Loaded \(decoded.count) files in \(String(format: "%.3f", loadTime))s")
+                }
+            } catch {
+                print("❌ FilesManager: Failed to load/decode files: \(error.localizedDescription)")
+                // Don't crash - just start with empty array
+                DispatchQueue.main.async {
+                    self.files = []
+                }
             }
         }
         
@@ -500,11 +513,20 @@ class FilesManager: ObservableObject {
     
     // MARK: - Persistence
     
-    private var saveURL: URL {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+    private var saveURL: URL? {
+        guard let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+            print("❌ FilesManager: Failed to get Application Support directory")
+            return nil
+        }
         let appFolder = appSupport.appendingPathComponent("TrayMe", isDirectory: true)
-        try? FileManager.default.createDirectory(at: appFolder, withIntermediateDirectories: true)
-        return appFolder.appendingPathComponent("files.json")
+        
+        do {
+            try FileManager.default.createDirectory(at: appFolder, withIntermediateDirectories: true)
+            return appFolder.appendingPathComponent("files.json")
+        } catch {
+            print("❌ FilesManager: Failed to create directory: \(error.localizedDescription)")
+            return nil
+        }
     }
     
     func saveToDisk() {
@@ -514,13 +536,21 @@ class FilesManager: ObservableObject {
         // Create new debounced save task
         let workItem = DispatchWorkItem { [weak self] in
             guard let self = self else { return }
+            guard let saveURL = self.saveURL else {
+                print("❌ FilesManager: Cannot save - invalid save URL")
+                return
+            }
             
             let encoder = JSONEncoder()
             encoder.dateEncodingStrategy = .iso8601
             encoder.outputFormatting = [] // No pretty printing for speed
             
-            if let data = try? encoder.encode(self.files) {
-                try? data.write(to: self.saveURL, options: .atomic)
+            do {
+                let data = try encoder.encode(self.files)
+                try data.write(to: saveURL, options: .atomic)
+                print("✅ FilesManager: Saved \(self.files.count) files")
+            } catch {
+                print("❌ FilesManager: Failed to save files: \(error.localizedDescription)")
             }
         }
         
