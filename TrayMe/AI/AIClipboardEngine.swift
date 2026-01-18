@@ -58,12 +58,14 @@ struct ClipboardSuggestion: Identifiable {
 }
 
 /// AI-powered clipboard engine for smart categorization and suggestions
+/// Thread-safe: All public methods run on @MainActor
 @MainActor
 class AIClipboardEngine: ObservableObject {
     /// Shared instance
     static let shared = AIClipboardEngine()
     
     /// Category cache with LRU eviction
+    /// Thread-safe: All access is @MainActor synchronized
     private var categoryCache: [String: ClipboardCategory] = [:]
     private var cacheOrder: [String] = []
     private let maxCacheSize = 500

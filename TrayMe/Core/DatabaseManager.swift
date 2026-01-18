@@ -27,13 +27,26 @@ actor DatabaseManager {
     
     init() {
         // Get Application Support directory
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        guard let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+            // Fallback to temporary directory if Application Support unavailable
+            print("⚠️ DatabaseManager: Application Support unavailable, using temporary directory")
+            let tempDir = FileManager.default.temporaryDirectory
+            databaseURL = tempDir.appendingPathComponent("TrayMe/trayme.db")
+            try? FileManager.default.createDirectory(at: tempDir.appendingPathComponent("TrayMe"), withIntermediateDirectories: true)
+            return
+        }
+        
         let appFolder = appSupport.appendingPathComponent("TrayMe", isDirectory: true)
         
         // Create directory if needed
-        try? FileManager.default.createDirectory(at: appFolder, withIntermediateDirectories: true)
+        do {
+            try FileManager.default.createDirectory(at: appFolder, withIntermediateDirectories: true)
+        } catch {
+            print("❌ DatabaseManager: Failed to create directory: \(error.localizedDescription)")
+        }
         
         databaseURL = appFolder.appendingPathComponent("trayme.db")
+        print("✅ DatabaseManager: Initialized with database at: \(databaseURL.path)")
     }
     
     /// Open database connection

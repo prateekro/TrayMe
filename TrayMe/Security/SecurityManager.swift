@@ -33,8 +33,11 @@ class SecurityManager: ObservableObject {
     /// Sensitive data detector
     let sensitiveDataDetector = SensitiveDataDetector()
     
-    /// Auto-lock timer
+    /// Auto-lock timer - stored to ensure proper cleanup
     private var autoLockTimer: Timer?
+    
+    /// Self-destructing item timers - stored to prevent premature garbage collection
+    private var selfDestructTimers: [UUID: Timer] = [:]
     
     /// Auto-lock interval in minutes (0 = disabled)
     @Published var autoLockMinutes: Int = 5 {
@@ -151,15 +154,27 @@ class SecurityManager: ObservableObject {
     // MARK: - Auto-Lock
     
     private func setupAutoLockTimer() {
+        // Invalidate and clear existing timer
         autoLockTimer?.invalidate()
+        autoLockTimer = nil
         
-        guard autoLockMinutes > 0 else { return }
+        guard autoLockMinutes > 0 else { 
+            print("✅ SecurityManager: Auto-lock disabled")
+            return 
+        }
         
-        autoLockTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
+        // Create timer on main RunLoop to ensure proper lifecycle
+        let timer = Timer(timeInterval: 30, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.checkAutoLock()
             }
         }
+        
+        // Add to main RunLoop with common mode to ensure it fires during UI interactions
+        RunLoop.main.add(timer, forMode: .common)
+        autoLockTimer = timer
+        
+        print("✅ SecurityManager: Auto-lock timer set for \(autoLockMinutes) minutes")
     }
     
     private func checkAutoLock() {
@@ -223,8 +238,17 @@ class SecurityManager: ObservableObject {
     }
     
     deinit {
+        // Clean up auto-lock timer
         autoLockTimer?.invalidate()
+        autoLockTimer = nil
         
+        // Clean up all self-destruct timers
+        for (_, timer) in selfDestructTimers {
+            timer.invalidate()
+        }
+        selfDestructTimers.removeAll()
+        
+        // Remove notification observers
         if let observer = sleepObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(observer)
         }
@@ -232,6 +256,8 @@ class SecurityManager: ObservableObject {
         if let observer = screenLockObserver {
             DistributedNotificationCenter.default().removeObserver(observer)
         }
+        
+        print("✅ SecurityManager: Cleaned up all timers and observers")
     }
 }
 
@@ -287,12 +313,22 @@ extension SecurityManager {
     
     /// Schedule deletion of a sensitive item
     private func scheduleDeletion(id: UUID, at date: Date) {
-        let timer = Timer(fire: date, interval: 0, repeats: false) { [weak self] _ in
-            Task { [weak self] in
+        // Create timer and store it to prevent garbage collection
+        let timer = Timer(fire: date, interval: 0, repeats: false) { [weak self] timer in
+            Task { @MainActor [weak self] in
                 await self?.deleteSensitiveItem(id: id)
+                // Clean up timer reference after deletion
+                self?.selfDestructTimers.removeValue(forKey: id)
             }
         }
+        
+        // Add to RunLoop with common mode
         RunLoop.main.add(timer, forMode: .common)
+        
+        // Store timer reference to prevent premature deallocation
+        selfDestructTimers[id] = timer
+        
+        print("✅ SecurityManager: Scheduled deletion for item \(id) at \(date)")
     }
     
     /// Delete a sensitive item
@@ -304,8 +340,9 @@ extension SecurityManager {
                 "DELETE FROM sensitive_items WHERE id = ?",
                 parameters: [id.uuidString]
             )
+            print("✅ SecurityManager: Deleted sensitive item \(id)")
         } catch {
-            print("Failed to delete sensitive item: \(error)")
+            print("❌ SecurityManager: Failed to delete sensitive item: \(error.localizedDescription)")
         }
     }
 }

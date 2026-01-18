@@ -22,6 +22,9 @@ class ClipboardManager: ObservableObject {
     private var changeCount: Int = 0
     private var timer: Timer?
     
+    /// Active categorization tasks to prevent premature deallocation
+    private var activeCategorizationTasks: Set<Task<Void, Never>> = []
+    
     // AI Engine reference
     private var aiEngine: AIClipboardEngine { AIClipboardEngine.shared }
     
@@ -101,7 +104,9 @@ class ClipboardManager: ObservableObject {
         let type = determineType(content: content)
         let newItem = ClipboardItem(content: content, type: type)
         
-        DispatchQueue.main.async {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            
             self.items.insert(newItem, at: 0)
             
             // Limit history size
@@ -121,16 +126,27 @@ class ClipboardManager: ObservableObject {
         }
         
         // AI categorization in background (non-blocking)
-        Task.detached(priority: .utility) { [weak self] in
+        // Store task reference to ensure it completes
+        let categorizationTask = Task.detached(priority: .utility) { [weak self, itemId = newItem.id] in
             guard let self = self else { return }
             let category = await MainActor.run { self.aiEngine.categorize(content) }
             
-            await MainActor.run {
-                self.categoryCache[newItem.id] = category
+            await MainActor.run { [weak self] in
+                guard let self = self else { return }
+                self.categoryCache[itemId] = category
             }
             
             // Track analytics in background
             await AnalyticsManager.shared.trackClipboardCopy(category: category.rawValue)
+        }
+        
+        // Store task to prevent premature deallocation
+        self.activeCategorizationTasks.insert(categorizationTask)
+        
+        // Clean up completed task
+        Task { @MainActor in
+            _ = await categorizationTask.result
+            self.activeCategorizationTasks.remove(categorizationTask)
         }
     }
     
@@ -245,32 +261,63 @@ class ClipboardManager: ObservableObject {
     
     // MARK: - Persistence
     
-    private var saveURL: URL {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+    private var saveURL: URL? {
+        guard let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+            print("❌ ClipboardManager: Failed to get Application Support directory")
+            return nil
+        }
         let appFolder = appSupport.appendingPathComponent("TrayMe", isDirectory: true)
-        try? FileManager.default.createDirectory(at: appFolder, withIntermediateDirectories: true)
-        return appFolder.appendingPathComponent("clipboard.json")
+        
+        do {
+            try FileManager.default.createDirectory(at: appFolder, withIntermediateDirectories: true)
+            return appFolder.appendingPathComponent("clipboard.json")
+        } catch {
+            print("❌ ClipboardManager: Failed to create directory: \(error.localizedDescription)")
+            return nil
+        }
     }
     
     func saveToDisk() {
+        guard let saveURL = saveURL else {
+            print("❌ ClipboardManager: Cannot save - invalid save URL")
+            return
+        }
+        
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         
-        if let data = try? encoder.encode(items) {
-            try? data.write(to: saveURL)
+        do {
+            let data = try encoder.encode(items)
+            try data.write(to: saveURL, options: [.atomic])
+            print("✅ ClipboardManager: Saved \(items.count) items")
+        } catch {
+            print("❌ ClipboardManager: Failed to save clipboard: \(error.localizedDescription)")
         }
     }
     
     func loadFromDisk() {
-        guard FileManager.default.fileExists(atPath: saveURL.path) else { return }
+        guard let saveURL = saveURL else {
+            print("❌ ClipboardManager: Cannot load - invalid save URL")
+            return
+        }
+        
+        guard FileManager.default.fileExists(atPath: saveURL.path) else { 
+            print("📋 ClipboardManager: No saved clipboard file found")
+            return 
+        }
         
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         
-        if let data = try? Data(contentsOf: saveURL),
-           let decoded = try? decoder.decode([ClipboardItem].self, from: data) {
+        do {
+            let data = try Data(contentsOf: saveURL)
+            let decoded = try decoder.decode([ClipboardItem].self, from: data)
             self.items = decoded
             self.favorites = decoded.filter { $0.isFavorite }
+            print("✅ ClipboardManager: Loaded \(decoded.count) items")
+        } catch {
+            print("❌ ClipboardManager: Failed to load clipboard: \(error.localizedDescription)")
+            // Keep existing items if decode fails (safer than clearing)
         }
     }
     

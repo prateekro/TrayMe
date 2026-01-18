@@ -83,32 +83,63 @@ class NotesManager: ObservableObject {
     
     // MARK: - Persistence
     
-    private var saveURL: URL {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+    private var saveURL: URL? {
+        guard let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+            print("❌ NotesManager: Failed to get Application Support directory")
+            return nil
+        }
         let appFolder = appSupport.appendingPathComponent("TrayMe", isDirectory: true)
-        try? FileManager.default.createDirectory(at: appFolder, withIntermediateDirectories: true)
-        return appFolder.appendingPathComponent("notes.json")
+        
+        do {
+            try FileManager.default.createDirectory(at: appFolder, withIntermediateDirectories: true)
+            return appFolder.appendingPathComponent("notes.json")
+        } catch {
+            print("❌ NotesManager: Failed to create directory: \(error.localizedDescription)")
+            return nil
+        }
     }
     
     func saveToDisk() {
+        guard let saveURL = saveURL else {
+            print("❌ NotesManager: Cannot save - invalid save URL")
+            return
+        }
+        
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         
-        if let data = try? encoder.encode(notes) {
-            try? data.write(to: saveURL)
+        do {
+            let data = try encoder.encode(notes)
+            try data.write(to: saveURL, options: [.atomic])
+            print("✅ NotesManager: Saved \(notes.count) notes")
+        } catch {
+            print("❌ NotesManager: Failed to save notes: \(error.localizedDescription)")
         }
     }
     
     func loadFromDisk() {
-        guard FileManager.default.fileExists(atPath: saveURL.path) else { return }
+        guard let saveURL = saveURL else {
+            print("❌ NotesManager: Cannot load - invalid save URL")
+            return
+        }
+        
+        guard FileManager.default.fileExists(atPath: saveURL.path) else { 
+            print("📝 NotesManager: No saved notes file found")
+            return 
+        }
         
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         
-        if let data = try? Data(contentsOf: saveURL),
-           let decoded = try? decoder.decode([Note].self, from: data) {
+        do {
+            let data = try Data(contentsOf: saveURL)
+            let decoded = try decoder.decode([Note].self, from: data)
             self.notes = decoded
             self.selectedNote = decoded.first
+            print("✅ NotesManager: Loaded \(decoded.count) notes")
+        } catch {
+            print("❌ NotesManager: Failed to load notes: \(error.localizedDescription)")
+            // Keep existing notes array if decode fails (safer than clearing)
         }
     }
 }
