@@ -143,10 +143,14 @@ class ClipboardManager: ObservableObject {
         // Store task to prevent premature deallocation
         self.activeCategorizationTasks.insert(categorizationTask)
         
-        // Clean up completed task
-        Task { @MainActor in
-            _ = await categorizationTask.result
-            self.activeCategorizationTasks.remove(categorizationTask)
+        // Clean up completed task and handle any errors
+        Task { @MainActor [weak self] in
+            do {
+                try await categorizationTask.value
+            } catch {
+                print("❌ ClipboardManager: Categorization task failed: \(error.localizedDescription)")
+            }
+            self?.activeCategorizationTasks.remove(categorizationTask)
         }
     }
     

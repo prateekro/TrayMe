@@ -142,7 +142,8 @@ class FilesManager: ObservableObject {
             return 
         }
         
-        // Load in background to avoid blocking app launch with timeout
+        // Load in background to avoid blocking app launch
+        // Note: For large file lists, consider implementing a timeout in the future
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self else { return }
             

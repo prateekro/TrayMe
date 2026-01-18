@@ -39,6 +39,9 @@ class SecurityManager: ObservableObject {
     /// Self-destructing item timers - stored to prevent premature garbage collection
     private var selfDestructTimers: [UUID: Timer] = [:]
     
+    /// Auto-lock check interval in seconds
+    private static let autoLockCheckInterval: TimeInterval = 30.0
+    
     /// Auto-lock interval in minutes (0 = disabled)
     @Published var autoLockMinutes: Int = 5 {
         didSet {
@@ -164,7 +167,7 @@ class SecurityManager: ObservableObject {
         }
         
         // Create timer on main RunLoop to ensure proper lifecycle
-        let timer = Timer(timeInterval: 30, repeats: true) { [weak self] _ in
+        let timer = Timer(timeInterval: Self.autoLockCheckInterval, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.checkAutoLock()
             }
@@ -174,7 +177,7 @@ class SecurityManager: ObservableObject {
         RunLoop.main.add(timer, forMode: .common)
         autoLockTimer = timer
         
-        print("✅ SecurityManager: Auto-lock timer set for \(autoLockMinutes) minutes")
+        print("✅ SecurityManager: Auto-lock timer set for \(autoLockMinutes) minutes (checking every \(Self.autoLockCheckInterval)s)")
     }
     
     private func checkAutoLock() {
@@ -316,8 +319,10 @@ extension SecurityManager {
         // Create timer and store it to prevent garbage collection
         let timer = Timer(fire: date, interval: 0, repeats: false) { [weak self] timer in
             Task { @MainActor [weak self] in
+                // Delete the item
                 await self?.deleteSensitiveItem(id: id)
-                // Clean up timer reference after deletion
+                
+                // Clean up timer reference after deletion (atomic on @MainActor)
                 self?.selfDestructTimers.removeValue(forKey: id)
             }
         }
@@ -326,6 +331,7 @@ extension SecurityManager {
         RunLoop.main.add(timer, forMode: .common)
         
         // Store timer reference to prevent premature deallocation
+        // This is atomic because all access is on @MainActor
         selfDestructTimers[id] = timer
         
         print("✅ SecurityManager: Scheduled deletion for item \(id) at \(date)")
@@ -340,6 +346,10 @@ extension SecurityManager {
                 "DELETE FROM sensitive_items WHERE id = ?",
                 parameters: [id.uuidString]
             )
+            
+            // Ensure timer cleanup (defensive - should already be cleaned)
+            selfDestructTimers.removeValue(forKey: id)
+            
             print("✅ SecurityManager: Deleted sensitive item \(id)")
         } catch {
             print("❌ SecurityManager: Failed to delete sensitive item: \(error.localizedDescription)")
