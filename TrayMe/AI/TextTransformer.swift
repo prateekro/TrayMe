@@ -103,6 +103,49 @@ class TextTransformer: ObservableObject {
     /// Shared instance
     static let shared = TextTransformer()
     
+    // MARK: - Cached Regex Patterns
+    
+    /// Cache compiled regex patterns for better performance
+    private lazy var multipleSpacesRegex: NSRegularExpression? = {
+        try? NSRegularExpression(pattern: #" {2,}"#, options: [])
+    }()
+    
+    private lazy var multipleNewlinesRegex: NSRegularExpression? = {
+        try? NSRegularExpression(pattern: #"\n{3,}"#, options: [])
+    }()
+    
+    private lazy var boldMarkdownRegex: NSRegularExpression? = {
+        try? NSRegularExpression(pattern: #"\*\*([^*]+)\*\*"#, options: [])
+    }()
+    
+    private lazy var italicMarkdownRegex: NSRegularExpression? = {
+        try? NSRegularExpression(pattern: #"\*([^*]+)\*"#, options: [])
+    }()
+    
+    private lazy var inlineCodeRegex: NSRegularExpression? = {
+        try? NSRegularExpression(pattern: #"`([^`]+)`"#, options: [])
+    }()
+    
+    private lazy var markdownLinkRegex: NSRegularExpression? = {
+        try? NSRegularExpression(pattern: #"\[([^\]]+)\]\([^)]+\)"#, options: [])
+    }()
+    
+    private lazy var markdownImageRegex: NSRegularExpression? = {
+        try? NSRegularExpression(pattern: #"!\[([^\]]*)\]\([^)]+\)"#, options: [])
+    }()
+    
+    private lazy var markdownCodeBlockRegex: NSRegularExpression? = {
+        try? NSRegularExpression(pattern: #"```[^`]*```"#, options: [])
+    }()
+    
+    private lazy var markdownHorizontalRuleRegex: NSRegularExpression? = {
+        try? NSRegularExpression(pattern: #"^[-*_]{3,}$"#, options: [])
+    }()
+    
+    private lazy var markdownBlockquoteRegex: NSRegularExpression? = {
+        try? NSRegularExpression(pattern: #"^>\s?"#, options: [])
+    }()
+    
     private init() {}
     
     /// Apply a transformation to text
@@ -292,29 +335,57 @@ class TextTransformer: ObservableObject {
         // Remove headers (# ## ### etc)
         result = result.replacingOccurrences(of: #"^#{1,6}\s+"#, with: "", options: .regularExpression)
         
-        // Remove bold and italic
-        result = result.replacingOccurrences(of: #"\*\*([^*]+)\*\*"#, with: "$1", options: .regularExpression)
-        result = result.replacingOccurrences(of: #"\*([^*]+)\*"#, with: "$1", options: .regularExpression)
+        // Remove bold using cached regex
+        if let regex = boldMarkdownRegex {
+            let range = NSRange(result.startIndex..., in: result)
+            result = regex.stringByReplacingMatches(in: result, options: [], range: range, withTemplate: "$1")
+        }
+        
         result = result.replacingOccurrences(of: #"__([^_]+)__"#, with: "$1", options: .regularExpression)
+        
+        // Remove italic using cached regex
+        if let regex = italicMarkdownRegex {
+            let range = NSRange(result.startIndex..., in: result)
+            result = regex.stringByReplacingMatches(in: result, options: [], range: range, withTemplate: "$1")
+        }
+        
         result = result.replacingOccurrences(of: #"_([^_]+)_"#, with: "$1", options: .regularExpression)
         
-        // Remove inline code
-        result = result.replacingOccurrences(of: #"`([^`]+)`"#, with: "$1", options: .regularExpression)
+        // Remove inline code using cached regex
+        if let regex = inlineCodeRegex {
+            let range = NSRange(result.startIndex..., in: result)
+            result = regex.stringByReplacingMatches(in: result, options: [], range: range, withTemplate: "$1")
+        }
         
-        // Remove links [text](url) -> text
-        result = result.replacingOccurrences(of: #"\[([^\]]+)\]\([^)]+\)"#, with: "$1", options: .regularExpression)
+        // Remove links [text](url) -> text using cached regex
+        if let regex = markdownLinkRegex {
+            let range = NSRange(result.startIndex..., in: result)
+            result = regex.stringByReplacingMatches(in: result, options: [], range: range, withTemplate: "$1")
+        }
         
-        // Remove images ![alt](url)
-        result = result.replacingOccurrences(of: #"!\[([^\]]*)\]\([^)]+\)"#, with: "$1", options: .regularExpression)
+        // Remove images ![alt](url) using cached regex
+        if let regex = markdownImageRegex {
+            let range = NSRange(result.startIndex..., in: result)
+            result = regex.stringByReplacingMatches(in: result, options: [], range: range, withTemplate: "$1")
+        }
         
-        // Remove code blocks
-        result = result.replacingOccurrences(of: #"```[^`]*```"#, with: "", options: .regularExpression)
+        // Remove code blocks using cached regex
+        if let regex = markdownCodeBlockRegex {
+            let range = NSRange(result.startIndex..., in: result)
+            result = regex.stringByReplacingMatches(in: result, options: [], range: range, withTemplate: "")
+        }
         
-        // Remove horizontal rules
-        result = result.replacingOccurrences(of: #"^[-*_]{3,}$"#, with: "", options: .regularExpression)
+        // Remove horizontal rules using cached regex
+        if let regex = markdownHorizontalRuleRegex {
+            let range = NSRange(result.startIndex..., in: result)
+            result = regex.stringByReplacingMatches(in: result, options: [], range: range, withTemplate: "")
+        }
         
-        // Remove blockquotes
-        result = result.replacingOccurrences(of: #"^>\s?"#, with: "", options: .regularExpression)
+        // Remove blockquotes using cached regex
+        if let regex = markdownBlockquoteRegex {
+            let range = NSRange(result.startIndex..., in: result)
+            result = regex.stringByReplacingMatches(in: result, options: [], range: range, withTemplate: "")
+        }
         
         return result.trimmingCharacters(in: .whitespacesAndNewlines)
     }
@@ -322,10 +393,20 @@ class TextTransformer: ObservableObject {
     // MARK: - Whitespace Operations
     
     private func removeExtraSpaces(_ text: String) -> String {
+        var result = text
+        
         // Replace multiple spaces with single space
-        var result = text.replacingOccurrences(of: #" {2,}"#, with: " ", options: .regularExpression)
-        // Replace multiple newlines with single newline
-        result = result.replacingOccurrences(of: #"\n{3,}"#, with: "\n\n", options: .regularExpression)
+        if let regex = multipleSpacesRegex {
+            let range = NSRange(result.startIndex..., in: result)
+            result = regex.stringByReplacingMatches(in: result, options: [], range: range, withTemplate: " ")
+        }
+        
+        // Replace multiple newlines with double newline
+        if let regex = multipleNewlinesRegex {
+            let range = NSRange(result.startIndex..., in: result)
+            result = regex.stringByReplacingMatches(in: result, options: [], range: range, withTemplate: "\n\n")
+        }
+        
         return result.trimmingCharacters(in: .whitespacesAndNewlines)
     }
     
