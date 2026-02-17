@@ -7,6 +7,7 @@
 
 import SwiftUI
 import AppKit
+import Combine
 
 @main
 struct TrayMeApp: App {
@@ -35,12 +36,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     let notesManager = NotesManager()
     let appSettings = AppSettings()
     
+    // Combine cancellables for settings observation
+    private var settingsCancellables = Set<AnyCancellable>()
+    
     func applicationDidFinishLaunching(_ notification: Notification) {
         let appStartTime = CFAbsoluteTimeGetCurrent()
         print("🚀 TrayMe starting...")
         
         // Hide dock icon for menu bar app behavior
         NSApp.setActivationPolicy(.accessory)
+        
+        // Sync settings to managers
+        syncSettingsToManagers()
+        observeSettingsChanges()
         
         // Create status bar item
         let statusBarTime = CFAbsoluteTimeGetCurrent()
@@ -86,6 +94,46 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         )
         
         print("✅ TrayMe ready! (Total: \(String(format: "%.3f", CFAbsoluteTimeGetCurrent() - appStartTime))s)")
+    }
+    
+    /// Apply current AppSettings values to ClipboardManager and FilesManager
+    private func syncSettingsToManagers() {
+        clipboardManager.maxHistorySize = appSettings.clipboardMaxHistory
+        clipboardManager.ignorePasswordManagers = appSettings.ignorePasswordManagers
+        clipboardManager.isEnabled = appSettings.clipboardEnabled
+        
+        filesManager.maxFiles = appSettings.filesMaxStorage
+    }
+    
+    /// Observe changes on AppSettings and push them to the managers in real time
+    private func observeSettingsChanges() {
+        appSettings.$clipboardMaxHistory
+            .removeDuplicates()
+            .sink { [weak self] newValue in
+                self?.clipboardManager.maxHistorySize = newValue
+            }
+            .store(in: &settingsCancellables)
+        
+        appSettings.$ignorePasswordManagers
+            .removeDuplicates()
+            .sink { [weak self] newValue in
+                self?.clipboardManager.ignorePasswordManagers = newValue
+            }
+            .store(in: &settingsCancellables)
+        
+        appSettings.$clipboardEnabled
+            .removeDuplicates()
+            .sink { [weak self] newValue in
+                self?.clipboardManager.isEnabled = newValue
+            }
+            .store(in: &settingsCancellables)
+        
+        appSettings.$filesMaxStorage
+            .removeDuplicates()
+            .sink { [weak self] newValue in
+                self?.filesManager.maxFiles = newValue
+            }
+            .store(in: &settingsCancellables)
     }
     
     func setupStatusBar() {

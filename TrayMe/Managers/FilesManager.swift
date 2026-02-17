@@ -13,17 +13,13 @@ class FilesManager: ObservableObject {
     @Published var searchText: String = ""
     @Published var isLoading: Bool = false
     @AppStorage("shouldCopyFiles") var shouldCopyFiles: Bool = false
-    @AppStorage("maxFiles") private var storedMaxFiles: Int = 50
+    
+    // maxFiles is now set externally by AppSettings via AppDelegate
+    @Published var maxFiles: Int = 50
     
     // Debounce save operations to avoid excessive disk writes
     private var saveWorkItem: DispatchWorkItem?
     private let saveDebounceInterval: TimeInterval = 0.5 // Wait 500ms before saving
-    
-    // Computed property to enforce max limit of 100
-    var maxFiles: Int {
-        get { min(storedMaxFiles, 100) }
-        set { storedMaxFiles = min(newValue, 100) }
-    }
     
     // Fast thumbnail cache directory - uses Caches (cleaned by system when needed)
     private static let thumbnailCacheDir: URL? = {
