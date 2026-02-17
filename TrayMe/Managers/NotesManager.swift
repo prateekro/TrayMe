@@ -11,29 +11,34 @@ class NotesManager: ObservableObject {
     @Published var searchText: String = ""
     @Published var selectedNote: Note?
     
+    // Debounce save operations
+    private var saveWorkItem: DispatchWorkItem?
+    private let saveDebounceInterval: TimeInterval = 0.5
+    
     init() {
         loadFromDisk()
         
         // Create a default note if empty
         if notes.isEmpty {
-            _ = createNote()
+            let newNote = Note(title: "", content: "")
+            notes.insert(newNote, at: 0)
+            selectedNote = newNote
+            saveToDisk()
         }
     }
     
     func createNote() -> Note {
         let newNote = Note(title: "", content: "")
-        DispatchQueue.main.async {
-            self.notes.insert(newNote, at: 0)
-            self.selectedNote = newNote
-            self.saveToDisk()
-        }
+        notes.insert(newNote, at: 0)
+        selectedNote = newNote
+        saveToDisk()
         return newNote
     }
     
     func updateNote(_ note: Note, title: String? = nil, content: String? = nil) {
         if let index = notes.firstIndex(where: { $0.id == note.id }) {
             notes[index].update(title: title, content: content)
-            saveToDisk()
+            debouncedSave()
         }
     }
     
@@ -51,7 +56,7 @@ class NotesManager: ObservableObject {
         if let index = notes.firstIndex(where: { $0.id == note.id }) {
             notes[index].isPinned.toggle()
             
-            // Re-sort: pinned notes first
+            // Re-sort: pinned notes first, then by modification date
             notes.sort { (note1, note2) -> Bool in
                 if note1.isPinned != note2.isPinned {
                     return note1.isPinned
@@ -90,12 +95,29 @@ class NotesManager: ObservableObject {
         return appFolder.appendingPathComponent("notes.json")
     }
     
+    private func debouncedSave() {
+        saveWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.performSave()
+        }
+        saveWorkItem = workItem
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + saveDebounceInterval, execute: workItem)
+    }
+    
     func saveToDisk() {
+        saveWorkItem?.cancel()
+        performSave()
+    }
+    
+    private func performSave() {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         
-        if let data = try? encoder.encode(notes) {
-            try? data.write(to: saveURL)
+        // Capture notes on current thread to avoid race
+        let notesToSave = notes
+        
+        if let data = try? encoder.encode(notesToSave) {
+            try? data.write(to: saveURL, options: .atomic)
         }
     }
     

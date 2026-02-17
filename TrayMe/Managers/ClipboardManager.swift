@@ -15,17 +15,22 @@ class ClipboardManager: ObservableObject {
     @Published var searchText: String = ""
     
     private var pasteboard = NSPasteboard.general
-    private var changeCount: Int = 0
+    var changeCount: Int = 0
     private var timer: Timer?
     
     // Settings
     var maxHistorySize: Int = 100
     var ignorePasswordManagers: Bool = true
+    var isEnabled: Bool = true
     private let passwordManagerBundleIds = [
         "com.agilebits.onepassword",
+        "com.agilebits.onepassword7",
+        "com.1password.1password",
         "com.lastpass.LastPass",
         "com.bitwarden.desktop",
-        "com.dashlane.Dashlane"
+        "com.dashlane.Dashlane",
+        "com.keepersecurity.keeper",
+        "org.nicehash.enpass"
     ]
     
     init() {
@@ -48,6 +53,9 @@ class ClipboardManager: ObservableObject {
     }
     
     private func checkForChanges() {
+        // Respect enabled setting
+        guard isEnabled else { return }
+        
         guard pasteboard.changeCount != changeCount else { return }
         changeCount = pasteboard.changeCount
         
@@ -58,6 +66,8 @@ class ClipboardManager: ObservableObject {
         
         // Check for image first (higher priority)
         if let image = pasteboard.readObjects(forClasses: [NSImage.self])?.first as? NSImage {
+            // Validate image has non-zero size
+            guard image.size.width > 0 && image.size.height > 0 else { return }
             addImageItem(image: image)
             return
         }
@@ -83,6 +93,9 @@ class ClipboardManager: ObservableObject {
             return
         }
         
+        // Don't add extremely large clipboard content (over 1MB)
+        guard content.utf8.count < 1_000_000 else { return }
+        
         // Determine clipboard type
         let type = determineType(content: content)
         let newItem = ClipboardItem(content: content, type: type)
@@ -92,6 +105,11 @@ class ClipboardManager: ObservableObject {
             
             // Limit history size
             if self.items.count > self.maxHistorySize {
+                // Clean up image caches for removed items
+                let removedItems = self.items.suffix(from: self.maxHistorySize)
+                for item in removedItems where item.type == .image {
+                    item.deleteImage()
+                }
                 self.items = Array(self.items.prefix(self.maxHistorySize))
             }
             
@@ -121,6 +139,10 @@ class ClipboardManager: ObservableObject {
             
             // Limit history size
             if self.items.count > self.maxHistorySize {
+                let removedItems = self.items.suffix(from: self.maxHistorySize)
+                for item in removedItems where item.type == .image {
+                    item.deleteImage()
+                }
                 self.items = Array(self.items.prefix(self.maxHistorySize))
             }
             
@@ -137,7 +159,8 @@ class ClipboardManager: ObservableObject {
         }
         
         // Check if code (simple heuristic)
-        if content.contains("{") || content.contains("function") || content.contains("class ") || content.contains("import ") {
+        let codeIndicators = ["{", "function ", "class ", "import ", "def ", "fn ", "pub ", "var ", "let ", "const "]
+        if codeIndicators.contains(where: { content.contains($0) }) {
             return .code
         }
         
@@ -161,7 +184,9 @@ class ClipboardManager: ObservableObject {
             items[index].isFavorite.toggle()
             
             if items[index].isFavorite {
-                favorites.append(items[index])
+                if !favorites.contains(where: { $0.id == item.id }) {
+                    favorites.append(items[index])
+                }
             } else {
                 favorites.removeAll { $0.id == item.id }
             }
@@ -199,6 +224,12 @@ class ClipboardManager: ObservableObject {
     }
     
     func clearHistory() {
+        // Clean up image caches for removed non-favorite items
+        let removedItems = items.filter { !$0.isFavorite }
+        for item in removedItems where item.type == .image {
+            item.deleteImage()
+        }
+        
         // Remove only non-favorite items
         items.removeAll { !$0.isFavorite }
         saveToDisk()
@@ -225,7 +256,7 @@ class ClipboardManager: ObservableObject {
         encoder.dateEncodingStrategy = .iso8601
         
         if let data = try? encoder.encode(items) {
-            try? data.write(to: saveURL)
+            try? data.write(to: saveURL, options: .atomic)
         }
     }
     

@@ -12,6 +12,7 @@ class MainPanel: NSPanel {
     private var scrollOutsideMonitorLocal: Any?
     private var scrollOutsideMonitorGlobal: Any?
     private var dragMonitor: Any?
+    private var mouseUpMonitor: Any?
     
     // Panel state for tab control
     let panelState = PanelState()
@@ -30,8 +31,6 @@ class MainPanel: NSPanel {
          notesManager: NotesManager,
          appSettings: AppSettings) {
         
-        print("📦 Creating MainPanel...")
-        
         // Store managers
         self.clipboardManager = clipboardManager
         self.filesManager = filesManager
@@ -45,8 +44,6 @@ class MainPanel: NSPanel {
             backing: .buffered,
             defer: false
         )
-        
-        print("📦 Panel initialized")
         
         // Panel settings
         self.level = .floating
@@ -63,12 +60,8 @@ class MainPanel: NSPanel {
         self.standardWindowButton(.miniaturizeButton)?.isHidden = true
         self.standardWindowButton(.zoomButton)?.isHidden = true
         
-        print("📦 Panel settings applied")
-        
         // Position at top center of screen
         positionAtTopOfScreen()
-        
-        print("📦 Panel positioned")
         
         // Setup click outside to close
         setupClickOutsideMonitor()
@@ -85,10 +78,7 @@ class MainPanel: NSPanel {
         // Defer content setup to avoid layout recursion
         DispatchQueue.main.async { [weak self] in
             self?.setupContent()
-            print("📦 Content setup complete")
         }
-        
-        print("✅ MainPanel created successfully")
     }
     
     // Override to allow panel to become key window for text editing
@@ -107,7 +97,6 @@ class MainPanel: NSPanel {
             
             // Don't close if we're dragging
             if self.isDragging {
-                print("👆 Click detected but dragging - ignoring")
                 return
             }
             
@@ -122,16 +111,11 @@ class MainPanel: NSPanel {
                     
                     // Double-check we're not dragging
                     if !self.isDragging && self.isVisible {
-                        print("👆 Click outside panel - closing")
                         self.hide()
-                    } else {
-                        print("👆 Click was start of drag - keeping panel open")
                     }
                 }
             }
         }
-        
-        print("✅ Click outside monitor setup")
     }
     
     func setupScrollOutsideMonitor() {
@@ -147,8 +131,7 @@ class MainPanel: NSPanel {
                 // Detect scroll down (negative delta)
                 let delta = event.scrollingDeltaY
                 
-                if delta < -5 { // Small threshold to avoid accidental closes
-                    print("📜 Scroll down outside panel - closing")
+                if delta < -5 {
                     self.hide()
                 }
             }
@@ -168,14 +151,11 @@ class MainPanel: NSPanel {
                 // Detect scroll down (negative delta)
                 let delta = event.scrollingDeltaY
                 
-                if delta < -5 { // Small threshold to avoid accidental closes
-                    print("📜 Scroll down outside panel (global) - closing")
+                if delta < -5 {
                     self.hide()
                 }
             }
         }
-        
-        print("✅ Scroll outside monitor setup (local + global)")
     }
     
     func setupDragMonitor() {
@@ -185,30 +165,24 @@ class MainPanel: NSPanel {
             
             // If we detect a drag while panel is visible, set dragging state
             if !self.isDragging {
-                print("🎯 Drag detected - preventing panel close")
                 self.isDragging = true
             }
         }
         
-        // Also monitor for mouse up to reset drag state
-        NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseUp]) { [weak self] event in
+        // Also monitor for mouse up to reset drag state — store reference to avoid leak
+        mouseUpMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseUp]) { [weak self] event in
             guard let self = self else { return }
             
             if self.isDragging {
                 // Delay reset to ensure drop completes
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                    self.isDragging = false
-                    print("🎯 Drag ended - re-enabling panel close")
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+                    self?.isDragging = false
                 }
             }
         }
-        
-        print("✅ Drag monitor setup")
     }
     
     private func setupContent() {
-        print("🎨 Setting up SwiftUI content...")
-        
         // Create MainPanelView with shared managers
         let contentView = MainPanelView()
             .environmentObject(clipboardManager)
@@ -234,13 +208,14 @@ class MainPanel: NSPanel {
         ])
         
         self.hostingView = hosting
-        
-        print("🎨 SwiftUI content added")
     }
     
     func positionAtTopOfScreen() {
-        guard let screen = NSScreen.main else { return }
-        // Use full frame to include menu bar area
+        // Use the screen the mouse is on for better multi-monitor support
+        let mouseLocation = NSEvent.mouseLocation
+        let screen = NSScreen.screens.first(where: { $0.frame.contains(mouseLocation) }) ?? NSScreen.main
+        guard let screen = screen else { return }
+        
         let screenFrame = screen.frame
         
         // Full screen width
@@ -248,7 +223,7 @@ class MainPanel: NSPanel {
         // 40% of screen height
         let panelHeight: CGFloat = screenFrame.height * 0.40
         
-        // Start from left edge
+        // Start from left edge of the screen
         let x = screenFrame.minX
         // Position at absolute top of screen (including menu bar)
         let y = screenFrame.maxY - panelHeight
@@ -268,9 +243,9 @@ class MainPanel: NSPanel {
         // Don't show if already visible
         guard !self.isVisible else { return }
         
-        guard let screen = NSScreen.main else { return }
-        
         positionAtTopOfScreen()
+        
+        guard let screen = self.screen ?? NSScreen.main else { return }
         
         // Slide down animation from above screen
         let currentFrame = self.frame
@@ -291,9 +266,7 @@ class MainPanel: NSPanel {
             self.animator().setFrame(NSRect(x: currentFrame.origin.x, y: targetY, width: panelWidth, height: panelHeight), display: true)
         } completionHandler: {
             // After animation, focus notes if not dragging files
-            print("🎬 Animation complete. isDragging: \(self.isDragging)")
             if !self.isDragging {
-                print("🔔 Posting FocusNotes notification")
                 NotificationCenter.default.post(name: .focusNotes, object: nil)
             }
         }
@@ -308,11 +281,10 @@ class MainPanel: NSPanel {
     
     func setDragging(_ dragging: Bool) {
         isDragging = dragging
-        print("🎯 Dragging state: \(dragging)")
     }
     
     func hide() {
-        guard let screen = NSScreen.main else { return }
+        guard let screen = self.screen ?? NSScreen.main else { return }
         
         // Close Quick Look if it's open
         NotificationCenter.default.post(name: .mainPanelWillHide, object: nil)
@@ -331,22 +303,20 @@ class MainPanel: NSPanel {
     }
     
     deinit {
-        // Clean up click monitor
+        // Clean up all event monitors
         if let monitor = clickOutsideMonitor {
             NSEvent.removeMonitor(monitor)
         }
-        
-        // Clean up scroll monitors
         if let monitor = scrollOutsideMonitorLocal {
             NSEvent.removeMonitor(monitor)
         }
-        
         if let monitor = scrollOutsideMonitorGlobal {
             NSEvent.removeMonitor(monitor)
         }
-        
-        // Clean up drag monitor
         if let monitor = dragMonitor {
+            NSEvent.removeMonitor(monitor)
+        }
+        if let monitor = mouseUpMonitor {
             NSEvent.removeMonitor(monitor)
         }
     }

@@ -7,6 +7,7 @@ import SwiftUI
 import AppKit
 import CoreImage
 import CoreImage.CIFilterBuiltins
+import Metal
 
 enum EditorMode {
     case edit
@@ -52,11 +53,25 @@ struct ImageEditorView: View {
     @State private var textInputPosition: CGPoint = .zero
     @State private var textInputValue: String = ""
     @State private var selectedAnnotationIndex: Int?
+    @State private var editingTextIndex: Int?
+    
+    // Text styling
+    @State private var textFontSize: CGFloat = 24
+    @State private var textFontWeight: NSFont.Weight = .medium
+    @State private var textIsBold: Bool = false
+    @State private var textIsItalic: Bool = false
     
     // Additional features
     @State private var showingHistory: Bool = false
     @State private var editHistory: [NSImage] = []
     @State private var historyIndex: Int = -1
+    
+    // Copy feedback
+    @State private var showCopyFeedback: Bool = false
+    
+    // Cache the filtered image to avoid recomputation
+    @State private var cachedFilteredImage: NSImage?
+    @State private var lastFilterParams: FilterParams?
     
     let originalItem: ClipboardItem
     let onClose: () -> Void
@@ -71,6 +86,15 @@ struct ImageEditorView: View {
         case mono = "Mono"
         case tonal = "Tonal"
         case transfer = "Transfer"
+    }
+    
+    // Track filter parameters to detect changes
+    private struct FilterParams: Equatable {
+        let brightness: Double
+        let contrast: Double
+        let saturation: Double
+        let filter: ImageFilter
+        let imageSize: CGSize
     }
     
     init(item: ClipboardItem, onClose: @escaping () -> Void) {
@@ -135,14 +159,33 @@ struct ImageEditorView: View {
                                     tool: selectedTool,
                                     color: annotationColor,
                                     lineWidth: annotationLineWidth,
-                                    baseImage: applyFiltersToImage(),
+                                    baseImage: currentFilteredImage,
                                     onAnnotationAdded: {},
                                     onTextRequested: { point in
                                         textInputPosition = point
+                                        editingTextIndex = nil
+                                        textInputValue = ""
                                         showingTextInput = true
-                                    }
+                                    },
+                                    onTextEdit: { index in
+                                        guard index >= 0 && index < annotations.count else { return }
+                                        editingTextIndex = index
+                                        let annotation = annotations[index]
+                                        if let text = annotation.text {
+                                            textInputValue = text
+                                            textInputPosition = annotation.points.first ?? .zero
+                                            textFontSize = annotation.fontSize
+                                            textFontWeight = annotation.fontWeight
+                                            textIsBold = annotation.isBold
+                                            textIsItalic = annotation.isItalic
+                                            annotationColor = annotation.color
+                                            showingTextInput = true
+                                        }
+                                    },
+                                    fontSize: textFontSize,
+                                    fontWeight: textFontWeight
                                 )
-                                .aspectRatio(applyFiltersToImage().size, contentMode: .fit)
+                                .aspectRatio(currentFilteredImage.size, contentMode: .fit)
                                 .frame(maxWidth: geometry.size.width * 0.9, maxHeight: geometry.size.height * 0.9)
                                 .border(Color.gray.opacity(0.3), width: 1)
                                 Spacer()
@@ -154,26 +197,66 @@ struct ImageEditorView: View {
                         if showingTextInput {
                             VStack {
                                 Spacer()
-                                VStack(spacing: 12) {
-                                    Text("Add Text")
+                                VStack(spacing: 16) {
+                                    Text(editingTextIndex != nil ? "Edit Text" : "Add Text")
                                         .font(.headline)
+                                    
                                     TextField("Enter text", text: $textInputValue)
                                         .textFieldStyle(.roundedBorder)
-                                        .frame(width: 250)
+                                        .frame(width: 350)
+                                    
+                                    // Font size slider
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text("Font Size: \(Int(textFontSize))")
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                        Slider(value: $textFontSize, in: 12...72, step: 2)
+                                            .frame(width: 350)
+                                    }
+                                    
+                                    // Style toggles
+                                    HStack(spacing: 20) {
+                                        Toggle("Bold", isOn: $textIsBold)
+                                            .toggleStyle(.button)
+                                        
+                                        Toggle("Italic", isOn: $textIsItalic)
+                                            .toggleStyle(.button)
+                                        
+                                        // Color picker
+                                        ColorPicker("Color", selection: Binding(
+                                            get: { Color(annotationColor) },
+                                            set: { annotationColor = NSColor($0) }
+                                        ))
+                                        .labelsHidden()
+                                        .frame(width: 60)
+                                    }
+                                    
+                                    // Preview
+                                    Text(textInputValue.isEmpty ? "Preview" : textInputValue)
+                                        .font(.system(size: textFontSize, weight: textIsBold ? .bold : .regular))
+                                        .italic(textIsItalic)
+                                        .foregroundColor(Color(annotationColor))
+                                        .padding(8)
+                                        .background(Color.black.opacity(0.05))
+                                        .cornerRadius(4)
+                                        .frame(width: 350, alignment: .leading)
+                                    
                                     HStack(spacing: 12) {
                                         Button("Cancel") {
                                             showingTextInput = false
                                             textInputValue = ""
+                                            editingTextIndex = nil
                                         }
                                         .buttonStyle(.bordered)
                                         
-                                        Button("Add") {
+                                        Button(editingTextIndex != nil ? "Update" : "Add") {
                                             addTextAnnotation()
                                         }
                                         .buttonStyle(.borderedProminent)
+                                        .disabled(textInputValue.isEmpty)
                                     }
                                 }
-                                .padding()
+                                .padding(20)
                                 .background(Color(NSColor.windowBackgroundColor))
                                 .cornerRadius(8)
                                 .shadow(radius: 10)
@@ -185,7 +268,7 @@ struct ImageEditorView: View {
                     } else {
                         // Regular edit preview
                         ScrollView([.horizontal, .vertical]) {
-                            Image(nsImage: applyFiltersToImage())
+                            Image(nsImage: currentFilteredImage)
                                 .resizable()
                                 .aspectRatio(contentMode: .fit)
                                 .frame(maxWidth: geometry.size.width * 0.9)
@@ -211,46 +294,64 @@ struct ImageEditorView: View {
             Divider()
             
             // Action buttons
-            HStack(spacing: 12) {
-                Button("Copy") {
-                    copyTransformedImage()
-                }
-                .buttonStyle(.borderedProminent)
-                
-                Button("Save as New") {
-                    saveAsNewItem()
-                }
-                .buttonStyle(.bordered)
-                
-                Spacer()
-                
-                Button(action: {
-                    manager.toggleFavorite(originalItem)
-                }) {
-                    HStack(spacing: 4) {
-                        Image(systemName: originalItem.isFavorite ? "star.fill" : "star")
-                        Text(originalItem.isFavorite ? "Favorited" : "Favorite")
+            ZStack {
+                HStack(spacing: 12) {
+                    Button("Copy") {
+                        copyTransformedImage()
                     }
-                    .font(.system(size: 11))
-                    .foregroundColor(originalItem.isFavorite ? .yellow : .secondary)
-                }
-                .buttonStyle(.plain)
-                
-                Button(action: {
-                    manager.deleteItem(originalItem)
-                    onClose()
-                }) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "trash")
-                        Text("Delete")
+                    .buttonStyle(.borderedProminent)
+                    
+                    Button("Save as New") {
+                        saveAsNewItem()
                     }
-                    .font(.system(size: 11))
-                    .foregroundColor(.red)
+                    .buttonStyle(.bordered)
+                    
+                    Spacer()
+                    
+                    Button(action: {
+                        manager.toggleFavorite(originalItem)
+                    }) {
+                        HStack(spacing: 4) {
+                            Image(systemName: originalItem.isFavorite ? "star.fill" : "star")
+                            Text(originalItem.isFavorite ? "Favorited" : "Favorite")
+                        }
+                        .font(.system(size: 11))
+                        .foregroundColor(originalItem.isFavorite ? .yellow : .secondary)
+                    }
+                    .buttonStyle(.plain)
+                    
+                    Button(action: {
+                        manager.deleteItem(originalItem)
+                        onClose()
+                    }) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "trash")
+                            Text("Delete")
+                        }
+                        .font(.system(size: 11))
+                        .foregroundColor(.red)
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
+                .padding()
+                .background(Color(NSColor.controlBackgroundColor))
+                
+                // Copy feedback overlay
+                if showCopyFeedback {
+                    HStack(spacing: 6) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(.green)
+                        Text("Copied to clipboard!")
+                            .font(.system(size: 12, weight: .medium))
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(Color(NSColor.controlBackgroundColor))
+                    .cornerRadius(8)
+                    .shadow(radius: 4)
+                    .transition(.opacity.combined(with: .scale))
+                }
             }
-            .padding()
-            .background(Color(NSColor.controlBackgroundColor))
         }
         .alert("Image Saved", isPresented: $showingSaveAlert) {
             Button("OK", role: .cancel) { }
@@ -270,6 +371,39 @@ struct ImageEditorView: View {
                 onCancel: { showingResizeSheet = false }
             )
         }
+        .onChange(of: brightness) { _, _ in invalidateFilterCache() }
+        .onChange(of: contrast) { _, _ in invalidateFilterCache() }
+        .onChange(of: saturation) { _, _ in invalidateFilterCache() }
+        .onChange(of: selectedFilter) { _, _ in invalidateFilterCache() }
+        .onChange(of: editedImage.size) { _, _ in invalidateFilterCache() }
+    }
+    
+    // MARK: - Cached Filtered Image
+    
+    private var currentFilteredImage: NSImage {
+        let params = FilterParams(
+            brightness: brightness,
+            contrast: contrast,
+            saturation: saturation,
+            filter: selectedFilter,
+            imageSize: editedImage.size
+        )
+        
+        if let cached = cachedFilteredImage, lastFilterParams == params {
+            return cached
+        }
+        
+        let result = computeFilteredImage()
+        DispatchQueue.main.async {
+            self.cachedFilteredImage = result
+            self.lastFilterParams = params
+        }
+        return result
+    }
+    
+    private func invalidateFilterCache() {
+        cachedFilteredImage = nil
+        lastFilterParams = nil
     }
     
     // MARK: - Edit Controls
@@ -320,7 +454,12 @@ struct ImageEditorView: View {
             
             // Tool hint
             if selectedTool == .select {
-                Text("Click to select, drag to move, Delete key to remove")
+                Text("Click to select, drag to move, Delete key to remove, double-click text to edit")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal)
+            } else if selectedTool == .text {
+                Text("Click to add text with custom size, style, and color")
                     .font(.system(size: 10))
                     .foregroundColor(.secondary)
                     .padding(.horizontal)
@@ -601,25 +740,47 @@ struct ImageEditorView: View {
         selectedFilter = .none
         editedImage = originalItem.image ?? NSImage()
         annotations.removeAll()
+        currentAnnotation = nil
+        editingTextIndex = nil
+        textInputValue = ""
+        showingTextInput = false
+        invalidateFilterCache()
     }
     
     private func addTextAnnotation() {
         guard !textInputValue.isEmpty else {
             showingTextInput = false
+            editingTextIndex = nil
             return
         }
         
-        let annotation = Annotation(
-            tool: .text,
-            points: [textInputPosition],
-            text: textInputValue,
-            color: annotationColor,
-            lineWidth: annotationLineWidth,
-            isFilled: false,
-            isFinalized: true
-        )
+        if let editingIndex = editingTextIndex, editingIndex >= 0 && editingIndex < annotations.count {
+            // Update existing annotation
+            annotations[editingIndex].text = textInputValue
+            annotations[editingIndex].color = annotationColor
+            annotations[editingIndex].fontSize = textFontSize
+            annotations[editingIndex].fontWeight = textIsBold ? .bold : textFontWeight
+            annotations[editingIndex].isBold = textIsBold
+            annotations[editingIndex].isItalic = textIsItalic
+            editingTextIndex = nil
+        } else {
+            // Create new annotation
+            let annotation = Annotation(
+                tool: .text,
+                points: [textInputPosition],
+                text: textInputValue,
+                color: annotationColor,
+                lineWidth: annotationLineWidth,
+                isFilled: false,
+                isFinalized: true,
+                fontSize: textFontSize,
+                fontWeight: textIsBold ? .bold : textFontWeight,
+                isBold: textIsBold,
+                isItalic: textIsItalic
+            )
+            annotations.append(annotation)
+        }
         
-        annotations.append(annotation)
         showingTextInput = false
         textInputValue = ""
     }
@@ -631,11 +792,12 @@ struct ImageEditorView: View {
     
     private func clearAnnotations() {
         annotations.removeAll()
+        currentAnnotation = nil
     }
     
     private func saveSnapshot() {
         // Save current state to history
-        let snapshot = applyFiltersToImage()
+        let snapshot = currentFilteredImage
         if !annotations.isEmpty {
             let withAnnotations = renderAnnotationsOnImage(snapshot)
             editHistory.append(withAnnotations)
@@ -666,19 +828,34 @@ struct ImageEditorView: View {
         case grayscale, highContrast, vintage, sharpen, soften
     }
     
-    private func applyFiltersToImage() -> NSImage {
+    // MARK: - Performance Optimized CIContext
+    private static let sharedCIContext: CIContext = {
+        // Use Metal for GPU acceleration
+        if let device = MTLCreateSystemDefaultDevice() {
+            return CIContext(mtlDevice: device, options: [
+                .workingColorSpace: CGColorSpace(name: CGColorSpace.sRGB)!,
+                .cacheIntermediates: true
+            ])
+        }
+        // Fallback to CPU
+        return CIContext(options: [
+            .workingColorSpace: CGColorSpace(name: CGColorSpace.sRGB)!,
+            .useSoftwareRenderer: false
+        ])
+    }()
+    
+    private func computeFilteredImage() -> NSImage {
         guard let cgImage = editedImage.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
             return editedImage
         }
         
         let ciImage = CIImage(cgImage: cgImage)
-        let context = CIContext()
+        let context = Self.sharedCIContext
         
-        // Apply adjustments
+        // Apply adjustments — always apply colorControls so saturation-only changes work
         var outputImage = ciImage
         
-        // Brightness and Contrast
-        if brightness != 0 || contrast != 1.0 {
+        if brightness != 0 || contrast != 1.0 || saturation != 1.0 {
             let filter = CIFilter.colorControls()
             filter.inputImage = outputImage
             filter.brightness = Float(brightness)
@@ -735,7 +912,7 @@ struct ImageEditorView: View {
     }
     
     private func applyTransformations() -> NSImage {
-        let sourceImage = applyFiltersToImage()
+        let sourceImage = currentFilteredImage
         
         // If we have annotations, render them onto the image
         let imageWithAnnotations: NSImage
@@ -746,6 +923,7 @@ struct ImageEditorView: View {
         }
         
         let size = imageWithAnnotations.size
+        guard size.width > 0 && size.height > 0 else { return imageWithAnnotations }
         
         // Calculate new size based on rotation
         let radians = rotation * .pi / 180
@@ -784,21 +962,21 @@ struct ImageEditorView: View {
         // Draw base image
         image.draw(at: .zero, from: NSRect(origin: .zero, size: image.size), operation: .copy, fraction: 1.0)
         
-        // Draw annotations (simplified rendering)
+        // Draw annotations
         guard let context = NSGraphicsContext.current?.cgContext else {
             newImage.unlockFocus()
             return newImage
         }
         
         for annotation in annotations {
-            renderAnnotation(annotation, in: context)
+            renderAnnotation(annotation, in: context, imageSize: image.size)
         }
         
         newImage.unlockFocus()
         return newImage
     }
     
-    private func renderAnnotation(_ annotation: Annotation, in context: CGContext) {
+    private func renderAnnotation(_ annotation: Annotation, in context: CGContext, imageSize: NSSize? = nil) {
         context.saveGState()
         
         switch annotation.tool {
@@ -842,7 +1020,7 @@ struct ImageEditorView: View {
             
             // Draw arrowhead
             let angle = atan2(end.y - start.y, end.x - start.x)
-            let arrowLength: CGFloat = 15
+            let arrowLength: CGFloat = max(15, annotation.lineWidth * 5)
             let arrowAngle: CGFloat = .pi / 6
             
             let point1 = CGPoint(
@@ -854,11 +1032,13 @@ struct ImageEditorView: View {
                 y: end.y - arrowLength * sin(angle + arrowAngle)
             )
             
+            context.setFillColor(annotation.color.cgColor)
             context.beginPath()
             context.move(to: point1)
             context.addLine(to: end)
             context.addLine(to: point2)
-            context.strokePath()
+            context.closePath()
+            context.fillPath()
             
         case .rectangle:
             guard annotation.points.count >= 2 else { break }
@@ -868,6 +1048,7 @@ struct ImageEditorView: View {
                 width: abs(annotation.points[1].x - annotation.points[0].x),
                 height: abs(annotation.points[1].y - annotation.points[0].y)
             )
+            guard rect.width > 0 && rect.height > 0 else { break }
             
             if annotation.isFilled {
                 context.setFillColor(annotation.color.withAlphaComponent(0.3).cgColor)
@@ -886,6 +1067,7 @@ struct ImageEditorView: View {
                 width: abs(annotation.points[1].x - annotation.points[0].x),
                 height: abs(annotation.points[1].y - annotation.points[0].y)
             )
+            guard rect.width > 0 && rect.height > 0 else { break }
             
             if annotation.isFilled {
                 context.setFillColor(annotation.color.withAlphaComponent(0.3).cgColor)
@@ -904,6 +1086,7 @@ struct ImageEditorView: View {
                 width: abs(annotation.points[1].x - annotation.points[0].x),
                 height: abs(annotation.points[1].y - annotation.points[0].y)
             )
+            guard rect.width > 0 && rect.height > 0 else { break }
             context.setFillColor(annotation.color.withAlphaComponent(0.4).cgColor)
             context.fill(rect)
             
@@ -915,12 +1098,13 @@ struct ImageEditorView: View {
                 width: abs(annotation.points[1].x - annotation.points[0].x),
                 height: abs(annotation.points[1].y - annotation.points[0].y)
             )
+            guard rect.width > 0 && rect.height > 0 else { break }
             context.setFillColor(NSColor.black.withAlphaComponent(0.7).cgColor)
             context.fill(rect)
             
         case .eraser:
             guard annotation.points.count > 1 else { break }
-            context.setBlendMode(.clear)
+            context.setStrokeColor(NSColor.white.cgColor)
             context.setLineWidth(annotation.lineWidth * 2)
             context.setLineCap(.round)
             context.setLineJoin(.round)
@@ -932,10 +1116,32 @@ struct ImageEditorView: View {
             context.strokePath()
             
         case .text:
-            if let text = annotation.text, let point = annotation.points.first {
+            if let text = annotation.text, !text.isEmpty, let point = annotation.points.first {
+                // Use the annotation's actual font properties
+                var font: NSFont
+                if annotation.isBold && annotation.isItalic {
+                    font = NSFont.systemFont(ofSize: annotation.fontSize, weight: .bold)
+                    let fontManager = NSFontManager.shared
+                    font = fontManager.convert(font, toHaveTrait: [.boldFontMask, .italicFontMask])
+                } else if annotation.isBold {
+                    font = NSFont.systemFont(ofSize: annotation.fontSize, weight: .bold)
+                } else if annotation.isItalic {
+                    font = NSFont.systemFont(ofSize: annotation.fontSize, weight: annotation.fontWeight)
+                    let fontManager = NSFontManager.shared
+                    font = fontManager.convert(font, toHaveTrait: .italicFontMask)
+                } else {
+                    font = NSFont.systemFont(ofSize: annotation.fontSize, weight: annotation.fontWeight)
+                }
+                
+                let shadow = NSShadow()
+                shadow.shadowColor = NSColor.black.withAlphaComponent(0.3)
+                shadow.shadowOffset = NSSize(width: 1, height: -1)
+                shadow.shadowBlurRadius = 2
+                
                 let attributes: [NSAttributedString.Key: Any] = [
-                    .font: NSFont.systemFont(ofSize: 16, weight: .medium),
-                    .foregroundColor: annotation.color
+                    .font: font,
+                    .foregroundColor: annotation.color,
+                    .shadow: shadow
                 ]
                 let attributedString = NSAttributedString(string: text, attributes: attributes)
                 attributedString.draw(at: point)
@@ -950,6 +1156,8 @@ struct ImageEditorView: View {
     
     private func applyCrop(aspectRatio: CGFloat? = nil) {
         let size = editedImage.size
+        guard size.width > 0 && size.height > 0 else { return }
+        
         let targetRatio = aspectRatio ?? 1.0 // Default to 1:1
         
         var cropWidth: CGFloat
@@ -982,6 +1190,7 @@ struct ImageEditorView: View {
         editedImage = croppedImage
         newWidth = String(Int(cropWidth))
         newHeight = String(Int(cropHeight))
+        invalidateFilterCache()
     }
     
     private func applyResize() {
@@ -989,7 +1198,12 @@ struct ImageEditorView: View {
             return
         }
         
-        let newSize = NSSize(width: width, height: height)
+        // Clamp to reasonable maximum to avoid memory issues
+        let maxDimension: Double = 10000
+        let clampedWidth = min(width, maxDimension)
+        let clampedHeight = min(height, maxDimension)
+        
+        let newSize = NSSize(width: clampedWidth, height: clampedHeight)
         let resizedImage = NSImage(size: newSize)
         
         resizedImage.lockFocus()
@@ -1002,6 +1216,7 @@ struct ImageEditorView: View {
         resizedImage.unlockFocus()
         
         editedImage = resizedImage
+        invalidateFilterCache()
     }
     
     private func copyTransformedImage() {
@@ -1009,6 +1224,22 @@ struct ImageEditorView: View {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.writeObjects([transformed])
+        
+        // Update ClipboardManager's changeCount so it doesn't re-capture this as a new item
+        manager.changeCount = pasteboard.changeCount
+        
+        // Show feedback
+        withAnimation(.easeInOut(duration: 0.3)) {
+            showCopyFeedback = true
+        }
+        
+        // Hide feedback after delay
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            withAnimation(.easeInOut(duration: 0.3)) {
+                showCopyFeedback = false
+            }
+        }
     }
     
     private func saveAsNewItem() {
@@ -1142,7 +1373,7 @@ struct ResizeSheet: View {
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 100)
                         .onChange(of: width) { _, newValue in
-                            if maintainAspectRatio, let w = Double(newValue) {
+                            if maintainAspectRatio, let w = Double(newValue), originalSize.height > 0 {
                                 let aspectRatio = originalSize.width / originalSize.height
                                 height = String(Int(w / aspectRatio))
                             }
@@ -1158,7 +1389,7 @@ struct ResizeSheet: View {
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 100)
                         .onChange(of: height) { _, newValue in
-                            if maintainAspectRatio, let h = Double(newValue) {
+                            if maintainAspectRatio, let h = Double(newValue), originalSize.height > 0 {
                                 let aspectRatio = originalSize.width / originalSize.height
                                 width = String(Int(h * aspectRatio))
                             }
@@ -1188,9 +1419,20 @@ struct ResizeSheet: View {
                     onResize()
                 }
                 .buttonStyle(.borderedProminent)
+                .disabled({
+                    guard let w = Double(width), let h = Double(height) else { return true }
+                    return w <= 0 || h <= 0
+                }())
             }
         }
         .padding()
         .frame(width: 350)
+    }
+}
+
+// MARK: - Array Safe Access Extension
+extension Array {
+    subscript(safe index: Int) -> Element? {
+        return indices.contains(index) ? self[index] : nil
     }
 }

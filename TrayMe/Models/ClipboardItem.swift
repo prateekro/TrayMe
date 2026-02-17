@@ -16,12 +16,18 @@ struct ClipboardItem: Identifiable, Codable, Equatable {
     // Image cache directory - uses Caches (cleaned by system when needed)
     private static let imageCacheDir: URL? = {
         guard let appSupport = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else {
-            print("❌ Could not access Caches directory")
             return nil
         }
         let cacheDir = appSupport.appendingPathComponent("TrayMe/ClipboardImages")
         try? FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
         return cacheDir
+    }()
+    
+    // Cached formatter for performance — avoid creating one per call
+    private static let relativeDateFormatter: RelativeDateTimeFormatter = {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .abbreviated
+        return formatter
     }()
     
     init(content: String, type: ClipboardType = .text, isFavorite: Bool = false) {
@@ -58,6 +64,7 @@ struct ClipboardItem: Identifiable, Codable, Equatable {
     
     func loadImage() -> NSImage? {
         guard let cachePath = imageCachePath(),
+              FileManager.default.fileExists(atPath: cachePath.path),
               let data = try? Data(contentsOf: cachePath) else {
             return nil
         }
@@ -91,8 +98,6 @@ struct ClipboardItem: Identifiable, Codable, Equatable {
     }
     
     var timeAgo: String {
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .abbreviated
-        return formatter.localizedString(for: timestamp, relativeTo: Date())
+        return Self.relativeDateFormatter.localizedString(for: timestamp, relativeTo: Date())
     }
 }

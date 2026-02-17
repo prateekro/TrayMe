@@ -5,8 +5,11 @@
 
 import SwiftUI
 import AppKit
+import CoreImage
+import CoreImage.CIFilterBuiltins
 
 // MARK: - Annotation Models
+
 enum AnnotationTool: String, CaseIterable {
     case select = "Select"
     case draw = "Draw"
@@ -29,13 +32,49 @@ struct Annotation: Identifiable, Equatable {
     var lineWidth: CGFloat
     var isFilled: Bool
     var isFinalized: Bool
-    
+
+    // Text-specific properties
+    var fontSize: CGFloat
+    var fontWeight: NSFont.Weight
+    var isBold: Bool
+    var isItalic: Bool
+
+    init(tool: AnnotationTool, points: [CGPoint], text: String? = nil, color: NSColor,
+         lineWidth: CGFloat, isFilled: Bool, isFinalized: Bool,
+         fontSize: CGFloat = 16, fontWeight: NSFont.Weight = .regular,
+         isBold: Bool = false, isItalic: Bool = false) {
+        self.tool = tool
+        self.points = points
+        self.text = text
+        self.color = color
+        self.lineWidth = lineWidth
+        self.isFilled = isFilled
+        self.isFinalized = isFinalized
+        self.fontSize = fontSize
+        self.fontWeight = fontWeight
+        self.isBold = isBold
+        self.isItalic = isItalic
+    }
+
     static func == (lhs: Annotation, rhs: Annotation) -> Bool {
         lhs.id == rhs.id
     }
 }
 
-// MARK: - Canvas View
+// MARK: - Canvas Delegate Protocol
+
+protocol CanvasDelegate: AnyObject {
+    func annotationStarted(_ annotation: Annotation)
+    func annotationUpdated(_ annotation: Annotation)
+    func annotationFinalized(_ annotation: Annotation)
+    func annotationDiscarded()
+    func annotationsDidChange(_ annotations: [Annotation])
+    func requestTextInput(at point: CGPoint)
+    func editTextAnnotation(at index: Int)
+}
+
+// MARK: - Canvas View (NSViewRepresentable)
+
 struct AnnotationCanvasView: NSViewRepresentable {
     @Binding var annotations: [Annotation]
     @Binding var currentAnnotation: Annotation?
@@ -45,81 +84,115 @@ struct AnnotationCanvasView: NSViewRepresentable {
     let baseImage: NSImage
     let onAnnotationAdded: () -> Void
     let onTextRequested: ((CGPoint) -> Void)?
-    
+    let onTextEdit: ((Int) -> Void)?
+    let fontSize: CGFloat
+    let fontWeight: NSFont.Weight
+
     func makeNSView(context: Context) -> CanvasNSView {
         let view = CanvasNSView()
         view.delegate = context.coordinator
         view.baseImage = baseImage
         view.wantsLayer = true
         view.layer?.backgroundColor = NSColor.clear.cgColor
-        
-        // Enable mouse events
         view.translatesAutoresizingMaskIntoConstraints = false
-        
         return view
     }
-    
+
     func updateNSView(_ nsView: CanvasNSView, context: Context) {
-        print("🔄 Canvas update - annotations: \(annotations.count), tool: \(tool)")
+        let annotationsChanged = nsView.annotations.count != annotations.count ||
+            !zip(nsView.annotations, annotations).allSatisfy({ $0.id == $1.id })
+
+        let imageChanged = nsView.baseImage !== baseImage
+
+        let needsUpdate = annotationsChanged ||
+            imageChanged ||
+            nsView.tool != tool ||
+            nsView.color != color ||
+            nsView.lineWidth != lineWidth ||
+            nsView.fontSize != fontSize ||
+            nsView.fontWeight != fontWeight ||
+            (currentAnnotation != nil) != (nsView.currentAnnotation != nil)
+
+        guard needsUpdate else { return }
+
+        if annotationsChanged || imageChanged {
+            nsView.needsFullRedraw = true
+        }
+
         nsView.annotations = annotations
         nsView.currentAnnotation = currentAnnotation
         nsView.tool = tool
         nsView.color = color
         nsView.lineWidth = lineWidth
         nsView.baseImage = baseImage
+        nsView.fontSize = fontSize
+        nsView.fontWeight = fontWeight
+
+        nsView.validateSelection()
+        nsView.updateCursorForTool()
         nsView.needsDisplay = true
     }
-    
+
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
     }
-    
+
+    // MARK: Coordinator
+
     class Coordinator: NSObject, CanvasDelegate {
         let parent: AnnotationCanvasView
-        
+
         init(_ parent: AnnotationCanvasView) {
             self.parent = parent
         }
-        
+
         func annotationStarted(_ annotation: Annotation) {
-            print("📢 Coordinator: annotationStarted called")
             DispatchQueue.main.async {
-                print("📢 Setting currentAnnotation")
                 self.parent.currentAnnotation = annotation
             }
         }
-        
+
         func annotationUpdated(_ annotation: Annotation) {
             DispatchQueue.main.async {
                 self.parent.currentAnnotation = annotation
             }
         }
-        
+
         func annotationFinalized(_ annotation: Annotation) {
-            print("📢 Coordinator: annotationFinalized called")
             DispatchQueue.main.async {
-                print("📢 Adding annotation to list, current count: \(self.parent.annotations.count)")
                 self.parent.annotations.append(annotation)
                 self.parent.currentAnnotation = nil
-                print("📢 New count: \(self.parent.annotations.count)")
                 self.parent.onAnnotationAdded()
             }
         }
-        
+
+        func annotationDiscarded() {
+            DispatchQueue.main.async {
+                self.parent.currentAnnotation = nil
+            }
+        }
+
+        func annotationsDidChange(_ annotations: [Annotation]) {
+            DispatchQueue.main.async {
+                self.parent.annotations = annotations
+            }
+        }
+
         func requestTextInput(at point: CGPoint) {
             DispatchQueue.main.async {
                 self.parent.onTextRequested?(point)
             }
         }
+
+        func editTextAnnotation(at index: Int) {
+            DispatchQueue.main.async {
+                self.parent.onTextEdit?(index)
+            }
+        }
     }
 }
 
-protocol CanvasDelegate: AnyObject {
-    func annotationStarted(_ annotation: Annotation)
-    func annotationUpdated(_ annotation: Annotation)
-    func annotationFinalized(_ annotation: Annotation)
-    func requestTextInput(at point: CGPoint)
-}
+// MARK: - Canvas NSView
 
 class CanvasNSView: NSView {
     weak var delegate: CanvasDelegate?
@@ -129,221 +202,363 @@ class CanvasNSView: NSView {
     var color: NSColor = .red
     var lineWidth: CGFloat = 3.0
     var baseImage: NSImage?
-    
+    var fontSize: CGFloat = 16
+    var fontWeight: NSFont.Weight = .regular
+
     private var startPoint: CGPoint?
     private var selectedAnnotationIndex: Int?
     private var dragOffset: CGPoint = .zero
-    
+    private var isDraggingAnnotation: Bool = false
+
+    // Performance optimization - cached rendering
+    private var cachedImage: NSImage?
+    var needsFullRedraw = true
+
+    // Track bounds size to invalidate cache on resize
+    private var lastBoundsSize: CGSize = .zero
+
     override var acceptsFirstResponder: Bool { true }
-    
+
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         setupTracking()
     }
-    
+
     required init?(coder: NSCoder) {
         super.init(coder: coder)
         setupTracking()
     }
-    
+
     private func setupTracking() {
         let trackingArea = NSTrackingArea(
             rect: bounds,
-            options: [.activeAlways, .mouseMoved, .inVisibleRect, .mouseEnteredAndExited],
+            options: [.activeAlways, .mouseMoved, .inVisibleRect, .mouseEnteredAndExited, .cursorUpdate],
             owner: self,
             userInfo: nil
         )
         addTrackingArea(trackingArea)
     }
-    
+
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
-        
-        // Remove old tracking areas
+
         for area in trackingAreas {
             removeTrackingArea(area)
         }
-        
-        // Add new tracking area
+
         let trackingArea = NSTrackingArea(
             rect: bounds,
-            options: [.activeAlways, .mouseMoved, .inVisibleRect, .mouseEnteredAndExited],
+            options: [.activeAlways, .mouseMoved, .inVisibleRect, .mouseEnteredAndExited, .cursorUpdate],
             owner: self,
             userInfo: nil
         )
         addTrackingArea(trackingArea)
     }
-    
+
+    // MARK: - Cursor Management
+
+    func updateCursorForTool() {
+        window?.invalidateCursorRects(for: self)
+    }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        let cursor: NSCursor
+        switch tool {
+        case .select:
+            cursor = .arrow
+        case .draw:
+            cursor = .crosshair
+        case .text:
+            cursor = .iBeam
+        case .arrow, .line:
+            cursor = .crosshair
+        case .rectangle, .circle, .highlight, .blur:
+            cursor = .crosshair
+        case .eraser:
+            cursor = .disappearingItem
+        }
+        addCursorRect(bounds, cursor: cursor)
+    }
+
+    // MARK: - Selection Validation
+
+    func validateSelection() {
+        if let index = selectedAnnotationIndex {
+            if index >= annotations.count {
+                selectedAnnotationIndex = nil
+            }
+        }
+    }
+
+    // MARK: - Keyboard Events
+
     override func keyDown(with event: NSEvent) {
         // Delete or Backspace key
         if event.keyCode == 51 || event.keyCode == 117 {
-            if let selectedIndex = selectedAnnotationIndex {
-                print("🗑️ Deleting annotation at index \(selectedIndex)")
+            if let selectedIndex = selectedAnnotationIndex, selectedIndex < annotations.count {
                 annotations.remove(at: selectedIndex)
                 selectedAnnotationIndex = nil
+                needsFullRedraw = true
+                needsDisplay = true
+                delegate?.annotationsDidChange(annotations)
+                return
+            }
+        }
+
+        // Cmd+Z for undo
+        if event.modifierFlags.contains(.command) && event.charactersIgnoringModifiers == "z" {
+            if !annotations.isEmpty {
+                annotations.removeLast()
+                selectedAnnotationIndex = nil
+                needsFullRedraw = true
+                needsDisplay = true
+                delegate?.annotationsDidChange(annotations)
+                return
+            }
+        }
+
+        // Escape to deselect
+        if event.keyCode == 53 {
+            if selectedAnnotationIndex != nil {
+                selectedAnnotationIndex = nil
+                needsFullRedraw = true
                 needsDisplay = true
                 return
             }
         }
+
         super.keyDown(with: event)
     }
-    
+
+    // MARK: - Mouse Events
+
     override func mouseDown(with event: NSEvent) {
+        if window?.firstResponder !== self {
+            window?.makeFirstResponder(self)
+        }
+
         let point = convert(event.locationInWindow, from: nil)
-        startPoint = point
-        
-        print("🖱️ Mouse Down at: \(point)")
-        print("🎨 Current tool: \(tool)")
-        print("🎨 Color: \(color), Line width: \(lineWidth)")
-        
-        // Handle special tools
+        let clampedPoint = clampPointToBounds(point)
+        startPoint = clampedPoint
+        isDraggingAnnotation = false
+
         if tool == .text {
-            delegate?.requestTextInput(at: point)
+            delegate?.requestTextInput(at: clampedPoint)
             return
         }
-        
+
         if tool == .select {
-            // Find annotation at point (reverse order to get topmost)
+            if event.clickCount == 2 {
+                for (index, annotation) in annotations.enumerated().reversed() {
+                    if annotation.tool == .text && isPointInAnnotation(point: clampedPoint, annotation: annotation) {
+                        delegate?.editTextAnnotation(at: index)
+                        return
+                    }
+                }
+            }
+
             selectedAnnotationIndex = nil
             for (index, annotation) in annotations.enumerated().reversed() {
-                if hitTest(point: point, in: annotation) {
+                if isPointInAnnotation(point: clampedPoint, annotation: annotation) {
                     selectedAnnotationIndex = index
+                    isDraggingAnnotation = true
                     dragOffset = CGPoint(
-                        x: point.x - annotation.points[0].x,
-                        y: point.y - annotation.points[0].y
+                        x: clampedPoint.x - annotation.points[0].x,
+                        y: clampedPoint.y - annotation.points[0].y
                     )
-                    print("✅ Selected annotation \(index): \(annotation.tool)")
+                    needsFullRedraw = true
                     needsDisplay = true
                     return
                 }
             }
-            print("ℹ️ No annotation at point")
+            needsFullRedraw = true
             needsDisplay = true
             return
         }
-        
+
         let annotation = Annotation(
             tool: tool,
-            points: [point],
+            points: [clampedPoint],
             text: nil,
             color: color,
             lineWidth: lineWidth,
             isFilled: tool == .highlight || tool == .blur,
-            isFinalized: false
+            isFinalized: false,
+            fontSize: fontSize,
+            fontWeight: fontWeight
         )
-        
-        print("✅ Annotation created: \(annotation)")
-        
+
         delegate?.annotationStarted(annotation)
         needsDisplay = true
     }
-    
+
     override func mouseDragged(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
-        
-        print("🖱️ Mouse Dragged to: \(point)")
-        
-        // Handle select tool - move annotation
-        if tool == .select, let selectedIndex = selectedAnnotationIndex {
+        let clampedPoint = clampPointToBounds(point)
+
+        if tool == .select, isDraggingAnnotation,
+           let selectedIndex = selectedAnnotationIndex,
+           selectedIndex < annotations.count {
             var annotation = annotations[selectedIndex]
-            let newOrigin = CGPoint(x: point.x - dragOffset.x, y: point.y - dragOffset.y)
-            let delta = CGPoint(x: newOrigin.x - annotation.points[0].x, y: newOrigin.y - annotation.points[0].y)
-            
-            // Move all points by delta
+            let newOrigin = CGPoint(
+                x: clampedPoint.x - dragOffset.x,
+                y: clampedPoint.y - dragOffset.y
+            )
+            let delta = CGPoint(
+                x: newOrigin.x - annotation.points[0].x,
+                y: newOrigin.y - annotation.points[0].y
+            )
+
             annotation.points = annotation.points.map { pt in
                 CGPoint(x: pt.x + delta.x, y: pt.y + delta.y)
             }
-            
+
             annotations[selectedIndex] = annotation
-            print("🔄 Moved annotation to: \(newOrigin)")
+            needsFullRedraw = true
             needsDisplay = true
             return
         }
-        
-        guard var annotation = currentAnnotation, let start = startPoint else { 
-            print("❌ Mouse dragged but no current annotation or start point")
-            return 
+
+        guard var annotation = currentAnnotation, let start = startPoint else {
+            return
         }
-        
+
         switch tool {
         case .draw, .eraser:
-            annotation.points.append(point)
-            print("✏️ Added point, total points: \(annotation.points.count)")
+            annotation.points.append(clampedPoint)
         case .line, .arrow:
-            annotation.points = [start, point]
-            print("📏 Line/Arrow updated")
+            annotation.points = [start, clampedPoint]
         case .rectangle, .circle, .highlight, .blur:
-            annotation.points = [start, point]
-            print("⬜️ Shape updated")
+            annotation.points = [start, clampedPoint]
         default:
             break
         }
-        
-        // CRITICAL FIX: Update currentAnnotation with the modified copy
+
         currentAnnotation = annotation
         delegate?.annotationUpdated(annotation)
         needsDisplay = true
     }
-    
+
     override func mouseUp(with event: NSEvent) {
-        guard var annotation = currentAnnotation else { 
-            print("❌ Mouse up but no current annotation")
-            return 
+        if tool == .select && isDraggingAnnotation {
+            isDraggingAnnotation = false
+            delegate?.annotationsDidChange(annotations)
+            needsFullRedraw = true
+            needsDisplay = true
+            return
         }
-        
-        print("🖱️ Mouse Up - finalizing annotation with \(annotation.points.count) points")
-        
+
+        guard var annotation = currentAnnotation else {
+            return
+        }
+
+        let isDegenerate: Bool
+        switch annotation.tool {
+        case .draw, .eraser:
+            isDegenerate = annotation.points.count < 2
+        case .line, .arrow:
+            if annotation.points.count < 2 {
+                isDegenerate = true
+            } else {
+                let dx = annotation.points[1].x - annotation.points[0].x
+                let dy = annotation.points[1].y - annotation.points[0].y
+                isDegenerate = sqrt(dx * dx + dy * dy) < 2.0
+            }
+        case .rectangle, .circle, .highlight, .blur:
+            if annotation.points.count < 2 {
+                isDegenerate = true
+            } else {
+                let w = abs(annotation.points[1].x - annotation.points[0].x)
+                let h = abs(annotation.points[1].y - annotation.points[0].y)
+                isDegenerate = w < 2.0 && h < 2.0
+            }
+        case .text, .select:
+            isDegenerate = false
+        }
+
+        if isDegenerate {
+            currentAnnotation = nil
+            delegate?.annotationDiscarded()
+            startPoint = nil
+            return
+        }
+
         annotation.isFinalized = true
         delegate?.annotationFinalized(annotation)
         startPoint = nil
+        needsFullRedraw = true
         needsDisplay = true
     }
-    
+
+    // MARK: - Point Clamping
+
+    private func clampPointToBounds(_ point: CGPoint) -> CGPoint {
+        return CGPoint(
+            x: max(0, min(bounds.width, point.x)),
+            y: max(0, min(bounds.height, point.y))
+        )
+    }
+
+    // MARK: - Drawing
+
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        
-        print("🎨 Drawing canvas - bounds: \(bounds)")
-        print("📊 Annotations count: \(annotations.count), Current: \(currentAnnotation != nil ? "YES" : "NO")")
-        
-        guard let context = NSGraphicsContext.current?.cgContext else { 
-            print("❌ No graphics context!")
-            return 
+
+        guard let context = NSGraphicsContext.current?.cgContext else {
+            return
         }
-        
-        // Clear the view first
+
         context.clear(bounds)
-        
-        // Draw base image
-        if let image = baseImage {
-            print("🖼️ Drawing base image: \(image.size)")
-            image.draw(in: bounds)
-        } else {
-            print("❌ No base image!")
+
+        if lastBoundsSize != bounds.size {
+            lastBoundsSize = bounds.size
+            needsFullRedraw = true
         }
-        
-        // Draw all finalized annotations ON TOP
-        for (index, annotation) in annotations.enumerated() {
-            print("✏️ Drawing annotation \(index): \(annotation.tool), points: \(annotation.points.count)")
-            drawAnnotation(annotation)
-            
-            // Draw selection indicator
-            if let selectedIndex = selectedAnnotationIndex, index == selectedIndex {
-                drawSelectionIndicator(for: annotation, in: context)
-            }
+
+        if needsFullRedraw || cachedImage == nil {
+            cachedImage = renderBaseWithAnnotations()
+            needsFullRedraw = false
         }
-        
-        // Draw current annotation being created ON TOP
+
+        cachedImage?.draw(in: bounds)
+
         if let current = currentAnnotation {
-            print("✏️ Drawing CURRENT annotation: \(current.tool), points: \(current.points.count)")
             drawAnnotation(current)
         }
+
+        if let selectedIndex = selectedAnnotationIndex, selectedIndex < annotations.count {
+            drawSelectionIndicator(for: annotations[selectedIndex], in: context)
+        }
     }
-    
+
+    private func renderBaseWithAnnotations() -> NSImage? {
+        guard let baseImage = baseImage else { return nil }
+        guard bounds.width > 0 && bounds.height > 0 else { return nil }
+
+        let image = NSImage(size: bounds.size)
+        image.lockFocus()
+
+        guard NSGraphicsContext.current?.cgContext != nil else {
+            image.unlockFocus()
+            return nil
+        }
+
+        baseImage.draw(in: bounds)
+
+        for annotation in annotations {
+            drawAnnotation(annotation)
+        }
+
+        image.unlockFocus()
+        return image
+    }
+
     private func drawAnnotation(_ annotation: Annotation) {
         guard let context = NSGraphicsContext.current?.cgContext else { return }
-        
+
         context.saveGState()
-        
+
         switch annotation.tool {
         case .draw:
             drawFreehand(annotation, in: context)
@@ -363,67 +578,82 @@ class CanvasNSView: NSView {
             drawEraser(annotation, in: context)
         case .text:
             drawText(annotation)
-        default:
+        case .select:
             break
         }
-        
+
         context.restoreGState()
     }
-    
+
     private func drawFreehand(_ annotation: Annotation, in context: CGContext) {
         guard annotation.points.count > 1 else { return }
-        
+
         context.setStrokeColor(annotation.color.cgColor)
         context.setLineWidth(annotation.lineWidth)
         context.setLineCap(.round)
         context.setLineJoin(.round)
-        
-        // Use smooth path for better drawing
+
         let path = CGMutablePath()
         path.move(to: annotation.points[0])
-        
-        for i in 1..<annotation.points.count {
-            path.addLine(to: annotation.points[i])
+
+        if annotation.points.count == 2 {
+            path.addLine(to: annotation.points[1])
+        } else {
+            for i in 1..<annotation.points.count {
+                let currentPoint = annotation.points[i]
+                let previousPoint = annotation.points[i - 1]
+                let midPoint = CGPoint(
+                    x: (previousPoint.x + currentPoint.x) / 2,
+                    y: (previousPoint.y + currentPoint.y) / 2
+                )
+
+                if i == 1 {
+                    path.addLine(to: midPoint)
+                } else {
+                    path.addQuadCurve(to: midPoint, control: previousPoint)
+                }
+            }
+            if let lastPoint = annotation.points.last {
+                path.addLine(to: lastPoint)
+            }
         }
-        
+
         context.addPath(path)
         context.strokePath()
     }
-    
+
     private func drawLine(_ annotation: Annotation, in context: CGContext) {
         guard annotation.points.count >= 2 else { return }
-        
+
         context.setStrokeColor(annotation.color.cgColor)
         context.setLineWidth(annotation.lineWidth)
         context.setLineCap(.round)
-        
+
         context.beginPath()
         context.move(to: annotation.points[0])
         context.addLine(to: annotation.points[1])
         context.strokePath()
     }
-    
+
     private func drawArrow(_ annotation: Annotation, in context: CGContext) {
         guard annotation.points.count >= 2 else { return }
-        
+
         let start = annotation.points[0]
         let end = annotation.points[1]
-        
-        // Draw line
+
         context.setStrokeColor(annotation.color.cgColor)
         context.setLineWidth(annotation.lineWidth)
         context.setLineCap(.round)
-        
+
         context.beginPath()
         context.move(to: start)
         context.addLine(to: end)
         context.strokePath()
-        
-        // Draw arrowhead
+
         let angle = atan2(end.y - start.y, end.x - start.x)
-        let arrowLength: CGFloat = 15
+        let arrowLength: CGFloat = max(15, annotation.lineWidth * 5)
         let arrowAngle: CGFloat = .pi / 6
-        
+
         let point1 = CGPoint(
             x: end.x - arrowLength * cos(angle - arrowAngle),
             y: end.y - arrowLength * sin(angle - arrowAngle)
@@ -432,92 +662,147 @@ class CanvasNSView: NSView {
             x: end.x - arrowLength * cos(angle + arrowAngle),
             y: end.y - arrowLength * sin(angle + arrowAngle)
         )
-        
+
+        context.setFillColor(annotation.color.cgColor)
         context.beginPath()
         context.move(to: point1)
         context.addLine(to: end)
         context.addLine(to: point2)
-        context.strokePath()
+        context.closePath()
+        context.fillPath()
     }
-    
+
     private func drawRectangle(_ annotation: Annotation, in context: CGContext) {
         guard annotation.points.count >= 2 else { return }
-        
+
         let rect = CGRect(
             x: min(annotation.points[0].x, annotation.points[1].x),
             y: min(annotation.points[0].y, annotation.points[1].y),
             width: abs(annotation.points[1].x - annotation.points[0].x),
             height: abs(annotation.points[1].y - annotation.points[0].y)
         )
-        
+
+        guard rect.width > 0 && rect.height > 0 else { return }
+
         if annotation.isFilled {
             context.setFillColor(annotation.color.withAlphaComponent(0.3).cgColor)
             context.fill(rect)
         }
-        
+
         context.setStrokeColor(annotation.color.cgColor)
         context.setLineWidth(annotation.lineWidth)
         context.stroke(rect)
     }
-    
+
     private func drawCircle(_ annotation: Annotation, in context: CGContext) {
         guard annotation.points.count >= 2 else { return }
-        
+
         let rect = CGRect(
             x: min(annotation.points[0].x, annotation.points[1].x),
             y: min(annotation.points[0].y, annotation.points[1].y),
             width: abs(annotation.points[1].x - annotation.points[0].x),
             height: abs(annotation.points[1].y - annotation.points[0].y)
         )
-        
+
+        guard rect.width > 0 && rect.height > 0 else { return }
+
         if annotation.isFilled {
             context.setFillColor(annotation.color.withAlphaComponent(0.3).cgColor)
             context.fillEllipse(in: rect)
         }
-        
+
         context.setStrokeColor(annotation.color.cgColor)
         context.setLineWidth(annotation.lineWidth)
         context.strokeEllipse(in: rect)
     }
-    
+
     private func drawHighlight(_ annotation: Annotation, in context: CGContext) {
         guard annotation.points.count >= 2 else { return }
-        
+
         let rect = CGRect(
             x: min(annotation.points[0].x, annotation.points[1].x),
             y: min(annotation.points[0].y, annotation.points[1].y),
             width: abs(annotation.points[1].x - annotation.points[0].x),
             height: abs(annotation.points[1].y - annotation.points[0].y)
         )
-        
+
+        guard rect.width > 0 && rect.height > 0 else { return }
+
         context.setFillColor(annotation.color.withAlphaComponent(0.4).cgColor)
         context.fill(rect)
     }
-    
+
     private func drawBlur(_ annotation: Annotation) {
-        // Blur effect would require more complex CIFilter implementation
-        // For now, draw a pixelated rectangle as placeholder
-        guard annotation.points.count >= 2 else { return }
-        
+        guard annotation.points.count >= 2,
+              let baseImage = baseImage else { return }
+
         let rect = NSRect(
             x: min(annotation.points[0].x, annotation.points[1].x),
             y: min(annotation.points[0].y, annotation.points[1].y),
             width: abs(annotation.points[1].x - annotation.points[0].x),
             height: abs(annotation.points[1].y - annotation.points[0].y)
         )
-        
+
+        guard rect.width > 0 && rect.height > 0 else { return }
+
+        if let cgImage = baseImage.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+            let imageSize = baseImage.size
+            let viewSize = bounds.size
+
+            guard viewSize.width > 0 && viewSize.height > 0 else {
+                NSColor.black.withAlphaComponent(0.5).setFill()
+                rect.fill()
+                return
+            }
+
+            let scaleX = imageSize.width / viewSize.width
+            let scaleY = imageSize.height / viewSize.height
+
+            let imageRect = CGRect(
+                x: rect.origin.x * scaleX,
+                y: rect.origin.y * scaleY,
+                width: rect.width * scaleX,
+                height: rect.height * scaleY
+            )
+
+            let clampedRect = imageRect.intersection(CGRect(origin: .zero, size: imageSize))
+            guard clampedRect.width > 0 && clampedRect.height > 0 else {
+                NSColor.black.withAlphaComponent(0.5).setFill()
+                rect.fill()
+                return
+            }
+
+            let ciImage = CIImage(cgImage: cgImage)
+            let croppedCI = ciImage.cropped(to: clampedRect)
+
+            let blurFilter = CIFilter(name: "CIGaussianBlur")
+            blurFilter?.setValue(croppedCI, forKey: kCIInputImageKey)
+            blurFilter?.setValue(10.0, forKey: kCIInputRadiusKey)
+
+            if let outputImage = blurFilter?.outputImage {
+                let ciContext = CIContext()
+                let finalCropped = outputImage.cropped(to: clampedRect)
+                if let blurredCG = ciContext.createCGImage(finalCropped, from: clampedRect) {
+                    let blurredNS = NSImage(cgImage: blurredCG, size: rect.size)
+                    blurredNS.draw(in: rect)
+                    return
+                }
+            }
+        }
+
         NSColor.black.withAlphaComponent(0.5).setFill()
         rect.fill()
     }
-    
+
     private func drawEraser(_ annotation: Annotation, in context: CGContext) {
         guard annotation.points.count > 1 else { return }
-        
-        context.setBlendMode(.clear)
+
+        context.setStrokeColor(NSColor.white.cgColor)
         context.setLineWidth(annotation.lineWidth * 2)
         context.setLineCap(.round)
         context.setLineJoin(.round)
-        
+        context.setBlendMode(.normal)
+
         context.beginPath()
         context.move(to: annotation.points[0])
         for point in annotation.points.dropFirst() {
@@ -525,32 +810,82 @@ class CanvasNSView: NSView {
         }
         context.strokePath()
     }
-    
+
     private func drawText(_ annotation: Annotation) {
         guard let text = annotation.text, !text.isEmpty,
-              let point = annotation.points.first else { return }
-        
+              let point = annotation.points.first else {
+            return
+        }
+
+        var font: NSFont
+        if annotation.isBold && annotation.isItalic {
+            font = NSFont.systemFont(ofSize: annotation.fontSize, weight: .bold)
+            let fontManager = NSFontManager.shared
+            font = fontManager.convert(font, toHaveTrait: [.boldFontMask, .italicFontMask])
+        } else if annotation.isBold {
+            font = NSFont.systemFont(ofSize: annotation.fontSize, weight: .bold)
+        } else if annotation.isItalic {
+            font = NSFont.systemFont(ofSize: annotation.fontSize, weight: annotation.fontWeight)
+            let fontManager = NSFontManager.shared
+            font = fontManager.convert(font, toHaveTrait: .italicFontMask)
+        } else {
+            font = NSFont.systemFont(ofSize: annotation.fontSize, weight: annotation.fontWeight)
+        }
+
+        let shadow = NSShadow()
+        shadow.shadowColor = NSColor.black.withAlphaComponent(0.3)
+        shadow.shadowOffset = NSSize(width: 1, height: -1)
+        shadow.shadowBlurRadius = 2
+
         let attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 16, weight: .medium),
-            .foregroundColor: annotation.color
+            .font: font,
+            .foregroundColor: annotation.color,
+            .shadow: shadow
         ]
-        
+
         let attributedString = NSAttributedString(string: text, attributes: attributes)
+
+        let textSize = attributedString.size()
+        guard textSize.width > 0 && textSize.height > 0 else { return }
+
+        let backgroundRect = CGRect(
+            x: point.x - 2,
+            y: point.y - 2,
+            width: textSize.width + 4,
+            height: textSize.height + 4
+        )
+
+        NSColor.black.withAlphaComponent(0.1).setFill()
+        NSBezierPath(roundedRect: backgroundRect, xRadius: 3, yRadius: 3).fill()
+
         attributedString.draw(at: point)
     }
-    
+
     // MARK: - Selection Support
-    
-    private func hitTest(point: CGPoint, in annotation: Annotation) -> Bool {
+
+    private func isPointInAnnotation(point: CGPoint, annotation: Annotation) -> Bool {
         let tolerance: CGFloat = 10.0
-        
+
         switch annotation.tool {
         case .text:
-            guard let first = annotation.points.first else { return false }
-            return abs(point.x - first.x) < tolerance * 5 && abs(point.y - first.y) < tolerance * 5
-            
+            guard let first = annotation.points.first,
+                  let text = annotation.text, !text.isEmpty else { return false }
+            let font = NSFont.systemFont(ofSize: annotation.fontSize, weight: annotation.fontWeight)
+            let attributes: [NSAttributedString.Key: Any] = [.font: font]
+            let textSize = NSAttributedString(string: text, attributes: attributes).size()
+            guard textSize.width > 0 && textSize.height > 0 else { return false }
+            let textRect = CGRect(x: first.x, y: first.y, width: textSize.width, height: textSize.height)
+            return textRect.insetBy(dx: -tolerance, dy: -tolerance).contains(point)
+
         case .draw, .eraser:
-            // Check if point is near any segment of the path
+            guard annotation.points.count >= 2 else {
+                if let only = annotation.points.first {
+                    let dx = point.x - only.x
+                    let dy = point.y - only.y
+                    return sqrt(dx * dx + dy * dy) < tolerance
+                }
+                return false
+            }
             for i in 0..<annotation.points.count - 1 {
                 let p1 = annotation.points[i]
                 let p2 = annotation.points[i + 1]
@@ -559,11 +894,11 @@ class CanvasNSView: NSView {
                 }
             }
             return false
-            
+
         case .line, .arrow:
             guard annotation.points.count >= 2 else { return false }
             return distanceToLineSegment(point: point, p1: annotation.points[0], p2: annotation.points[1]) < tolerance
-            
+
         case .rectangle, .highlight:
             guard annotation.points.count >= 2 else { return false }
             let rect = CGRect(
@@ -573,7 +908,7 @@ class CanvasNSView: NSView {
                 height: abs(annotation.points[1].y - annotation.points[0].y)
             )
             return rect.insetBy(dx: -tolerance, dy: -tolerance).contains(point)
-            
+
         case .circle:
             guard annotation.points.count >= 2 else { return false }
             let center = CGPoint(
@@ -582,10 +917,17 @@ class CanvasNSView: NSView {
             )
             let radiusX = abs(annotation.points[1].x - annotation.points[0].x) / 2
             let radiusY = abs(annotation.points[1].y - annotation.points[0].y) / 2
+
+            guard radiusX > 0.001 && radiusY > 0.001 else {
+                let dx = point.x - center.x
+                let dy = point.y - center.y
+                return sqrt(dx * dx + dy * dy) < tolerance
+            }
+
             let dx = (point.x - center.x) / radiusX
             let dy = (point.y - center.y) / radiusY
             return sqrt(dx * dx + dy * dy) <= 1.0 + (tolerance / max(radiusX, radiusY))
-            
+
         case .blur:
             guard annotation.points.count >= 2 else { return false }
             let rect = CGRect(
@@ -595,47 +937,56 @@ class CanvasNSView: NSView {
                 height: abs(annotation.points[1].y - annotation.points[0].y)
             )
             return rect.insetBy(dx: -tolerance, dy: -tolerance).contains(point)
-            
+
         case .select:
             return false
         }
     }
-    
+
     private func distanceToLineSegment(point: CGPoint, p1: CGPoint, p2: CGPoint) -> CGFloat {
         let dx = p2.x - p1.x
         let dy = p2.y - p1.y
-        
+
         if dx == 0 && dy == 0 {
             return sqrt(pow(point.x - p1.x, 2) + pow(point.y - p1.y, 2))
         }
-        
+
         let t = max(0, min(1, ((point.x - p1.x) * dx + (point.y - p1.y) * dy) / (dx * dx + dy * dy)))
         let projection = CGPoint(x: p1.x + t * dx, y: p1.y + t * dy)
-        
+
         return sqrt(pow(point.x - projection.x, 2) + pow(point.y - projection.y, 2))
     }
-    
+
     private func drawSelectionIndicator(for annotation: Annotation, in context: CGContext) {
         context.saveGState()
-        
-        // Calculate bounding box
+
         guard !annotation.points.isEmpty else {
             context.restoreGState()
             return
         }
-        
+
         var minX = annotation.points[0].x
         var maxX = annotation.points[0].x
         var minY = annotation.points[0].y
         var maxY = annotation.points[0].y
-        
+
         for point in annotation.points {
             minX = min(minX, point.x)
             maxX = max(maxX, point.x)
             minY = min(minY, point.y)
             maxY = max(maxY, point.y)
         }
-        
+
+        if annotation.tool == .text,
+           let text = annotation.text, !text.isEmpty,
+           let first = annotation.points.first {
+            let font = NSFont.systemFont(ofSize: annotation.fontSize, weight: annotation.fontWeight)
+            let attributes: [NSAttributedString.Key: Any] = [.font: font]
+            let textSize = NSAttributedString(string: text, attributes: attributes).size()
+            maxX = max(maxX, first.x + textSize.width)
+            maxY = max(maxY, first.y + textSize.height)
+        }
+
         let padding: CGFloat = 8.0
         let selectionRect = CGRect(
             x: minX - padding,
@@ -643,14 +994,12 @@ class CanvasNSView: NSView {
             width: maxX - minX + 2 * padding,
             height: maxY - minY + 2 * padding
         )
-        
-        // Draw dashed border
+
         context.setStrokeColor(NSColor.systemBlue.cgColor)
         context.setLineWidth(2.0)
         context.setLineDash(phase: 0, lengths: [5, 5])
         context.stroke(selectionRect)
-        
-        // Draw corner handles
+
         let handleSize: CGFloat = 6.0
         let handles = [
             CGPoint(x: selectionRect.minX, y: selectionRect.minY),
@@ -658,8 +1007,9 @@ class CanvasNSView: NSView {
             CGPoint(x: selectionRect.minX, y: selectionRect.maxY),
             CGPoint(x: selectionRect.maxX, y: selectionRect.maxY)
         ]
-        
+
         context.setFillColor(NSColor.systemBlue.cgColor)
+        context.setLineDash(phase: 0, lengths: [])
         for handle in handles {
             let handleRect = CGRect(
                 x: handle.x - handleSize / 2,
@@ -669,7 +1019,7 @@ class CanvasNSView: NSView {
             )
             context.fill(handleRect)
         }
-        
+
         context.restoreGState()
     }
 }
