@@ -9,8 +9,32 @@ import Combine
 class PanelState: ObservableObject {
     @Published var selectedTab: PanelTab = .clipboard
     
-    enum PanelTab {
+    enum PanelTab: CaseIterable {
         case clipboard, files, notes
+        
+        var title: String {
+            switch self {
+            case .clipboard: return "Clipboard"
+            case .files: return "Files"
+            case .notes: return "Notes"
+            }
+        }
+        
+        var icon: String {
+            switch self {
+            case .clipboard: return "doc.on.clipboard.fill"
+            case .files: return "folder.fill"
+            case .notes: return "note.text"
+            }
+        }
+        
+        var inactiveIcon: String {
+            switch self {
+            case .clipboard: return "doc.on.clipboard"
+            case .files: return "folder"
+            case .notes: return "note.text"
+            }
+        }
     }
 }
 
@@ -22,63 +46,89 @@ struct MainPanelView: View {
     @EnvironmentObject var panelState: PanelState
     
     @Environment(\.openSettings) private var openSettings
+    @State private var hoveredTab: PanelState.PanelTab?
     
     var body: some View {
         VStack(spacing: 0) {
-            // Top bar with section titles and settings
-            HStack(spacing: 0) {
-                // Clipboard header
-                HStack(spacing: 6) {
-                    Image(systemName: "doc.on.clipboard")
-                    Text("Clipboard")
-                        .font(.system(size: 13, weight: .medium))
+            // Top navigation bar
+            HStack(spacing: 2) {
+                ForEach(PanelState.PanelTab.allCases, id: \.self) { tab in
+                    let isSelected = panelState.selectedTab == tab
+                    let isHovered = hoveredTab == tab
+                    
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            panelState.selectedTab = tab
+                        }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: isSelected ? tab.icon : tab.inactiveIcon)
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(isSelected ? Color.accentColor : .secondary)
+                                .contentTransition(.symbolEffect(.replace))
+                            
+                            Text(tab.title)
+                                .font(.system(size: 13, weight: isSelected ? .semibold : .medium))
+                                .foregroundStyle(isSelected ? .primary : .secondary)
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .fill(
+                                    isSelected
+                                    ? Color.accentColor.opacity(0.12)
+                                    : (isHovered ? Color.primary.opacity(0.04) : Color.clear)
+                                )
+                        )
+                        .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .onHover { h in
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            hoveredTab = h ? tab : nil
+                        }
+                    }
+                    
+                    if tab != PanelState.PanelTab.allCases.last {
+                        Spacer()
+                    }
                 }
-                .foregroundColor(panelState.selectedTab == .clipboard ? .accentColor : .primary)
-                .frame(maxWidth: .infinity)
                 
-                Divider()
-                    .frame(height: 20)
-                
-                // Files header
-                HStack(spacing: 6) {
-                    Image(systemName: "folder")
-                    Text("Files")
-                        .font(.system(size: 13, weight: .medium))
-                }
-                .foregroundColor(panelState.selectedTab == .files ? .accentColor : .primary)
-                .frame(maxWidth: .infinity)
-                
-                Divider()
-                    .frame(height: 20)
-                
-                // Notes header
-                HStack(spacing: 6) {
-                    Image(systemName: "note.text")
-                    Text("Notes")
-                        .font(.system(size: 13, weight: .medium))
-                }
-                .foregroundColor(panelState.selectedTab == .notes ? .accentColor : .primary)
-                .frame(maxWidth: .infinity)
+                Spacer()
                 
                 // Settings button
-                Button(action: {
-                    // Close the panel first (if we can get the reference)
+                Button {
                     if let appDelegate = NSApplication.shared.delegate as? AppDelegate {
                         appDelegate.mainPanel?.hide()
                     }
-                    // Always open settings regardless
                     openSettings()
-                }) {
-                    Image(systemName: "gearshape")
-                        .foregroundColor(.secondary)
+                } label: {
+                    Image(systemName: "gearshape.fill")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 28, height: 28)
+                        .background(
+                            Circle()
+                                .fill(Color.primary.opacity(0.05))
+                        )
+                        .contentShape(Circle())
                 }
                 .buttonStyle(.plain)
-                .padding(.leading, 12)
             }
-            .padding()
-            .background(Color(NSColor.windowBackgroundColor))
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
             
-            Divider()
+            // Thin separator with gradient
+            Rectangle()
+                .fill(
+                    LinearGradient(
+                        colors: [.clear, Color.primary.opacity(0.1), .clear],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
+                .frame(height: 1)
             
             // Three panels side by side with adjustable dividers
             ThreePanelSplitView(
@@ -90,7 +140,8 @@ struct MainPanelView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .background(VisualEffectBlur(material: .hudWindow, blendingMode: .behindWindow))
-        .cornerRadius(12)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .shadow(color: .black.opacity(0.2), radius: 20, y: 8)
     }
 }
 
@@ -153,7 +204,6 @@ struct ThreePanelSplitView: NSViewRepresentable {
         // Restore saved positions or use equal proportions
         if let savedPositions = UserDefaults.standard.array(forKey: "TrayMe.DividerPositions") as? [CGFloat],
            savedPositions.count == 3 {
-            // Restore saved widths
             DispatchQueue.main.async {
                 for (index, width) in savedPositions.enumerated() {
                     if index < splitView.arrangedSubviews.count {
@@ -174,18 +224,17 @@ struct ThreePanelSplitView: NSViewRepresentable {
     }
     
     func updateNSView(_ nsView: NSSplitView, context: Context) {
-        // Update background highlight based on selected tab
         for (index, subview) in nsView.arrangedSubviews.enumerated() {
             let shouldHighlight = (index == 0 && selectedTab == .clipboard) ||
                                   (index == 1 && selectedTab == .files) ||
                                   (index == 2 && selectedTab == .notes)
             
+            subview.wantsLayer = true
             if shouldHighlight {
-                subview.layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.05).cgColor
+                subview.layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.04).cgColor
             } else {
                 subview.layer?.backgroundColor = NSColor.clear.cgColor
             }
-            subview.wantsLayer = true
         }
     }
 }

@@ -43,7 +43,7 @@ struct GeneralSettingsView: View {
     
     var body: some View {
         Form {
-            Section(header: Text("Activation").font(.headline)) {
+            Section {
                 Toggle("Enable mouse activation at top of screen", isOn: $settings.enableMouseActivation)
                     .help("Move mouse to top of screen to show TrayMe")
                 
@@ -59,9 +59,12 @@ struct GeneralSettingsView: View {
                         .frame(width: 50)
                 }
                 .disabled(!settings.enableHotkeyActivation)
+            } header: {
+                Label("Activation", systemImage: "bolt.fill")
+                    .font(.headline)
             }
             
-            Section(header: Text("Appearance").font(.headline)) {
+            Section {
                 Picker("Default tab:", selection: $settings.defaultTab) {
                     Text("Clipboard").tag("clipboard")
                     Text("Files").tag("files")
@@ -73,22 +76,31 @@ struct GeneralSettingsView: View {
                     Text("Panel size:")
                     Slider(value: $settings.panelWidth, in: 600...1400, step: 50)
                     Text("\(Int(settings.panelWidth))px")
+                        .font(.system(.body, design: .rounded).monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .frame(width: 50, alignment: .trailing)
                 }
+            } header: {
+                Label("Appearance", systemImage: "paintbrush.fill")
+                    .font(.headline)
             }
             
-            Section(header: Text("About").font(.headline)) {
+            Section {
                 HStack {
                     Text("Version:")
+                    Spacer()
                     Text("1.0.0")
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                 }
                 
-                HStack {
-                    Text("TrayMe - Unclutter Clone")
-                        .foregroundColor(.secondary)
-                }
+                Text("TrayMe — Your productivity tray")
+                    .foregroundStyle(.secondary)
+            } header: {
+                Label("About", systemImage: "info.circle.fill")
+                    .font(.headline)
             }
         }
+        .formStyle(.grouped)
         .padding(20)
     }
 }
@@ -98,7 +110,7 @@ struct ClipboardSettingsView: View {
     
     var body: some View {
         Form {
-            Section(header: Text("Clipboard Manager").font(.headline)) {
+            Section {
                 Toggle("Enable clipboard manager", isOn: $settings.clipboardEnabled)
                 
                 HStack {
@@ -108,24 +120,34 @@ struct ClipboardSettingsView: View {
                         set: { settings.clipboardMaxHistory = Int($0) }
                     ), in: 10...500, step: 10)
                     Text("\(settings.clipboardMaxHistory)")
+                        .font(.system(.body, design: .rounded).monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .frame(width: 40, alignment: .trailing)
                 }
                 .disabled(!settings.clipboardEnabled)
                 
                 Toggle("Ignore password managers", isOn: $settings.ignorePasswordManagers)
                     .help("Don't track clipboard when copying from 1Password, LastPass, etc.")
                     .disabled(!settings.clipboardEnabled)
+            } header: {
+                Label("Clipboard Manager", systemImage: "doc.on.clipboard.fill")
+                    .font(.headline)
             }
             
-            Section(header: Text("Privacy").font(.headline)) {
-                Text("Clipboard data is stored locally on your Mac")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+            Section {
+                Label("Clipboard data is stored locally on your Mac", systemImage: "lock.shield.fill")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
                 
-                Text("No data is sent to external servers")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                Label("No data is sent to external servers", systemImage: "network.slash")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            } header: {
+                Label("Privacy", systemImage: "hand.raised.fill")
+                    .font(.headline)
             }
         }
+        .formStyle(.grouped)
         .padding(20)
     }
 }
@@ -135,7 +157,7 @@ struct FilesSettingsView: View {
     
     var body: some View {
         Form {
-            Section(header: Text("Files Hub").font(.headline)) {
+            Section {
                 Toggle("Enable files hub", isOn: $settings.filesEnabled)
                 
                 HStack {
@@ -145,20 +167,30 @@ struct FilesSettingsView: View {
                         set: { settings.filesMaxStorage = Int($0) }
                     ), in: 10...100, step: 5)
                     Text("\(settings.filesMaxStorage)")
+                        .font(.system(.body, design: .rounded).monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .frame(width: 40, alignment: .trailing)
                 }
                 .disabled(!settings.filesEnabled)
+            } header: {
+                Label("Files Hub", systemImage: "folder.fill")
+                    .font(.headline)
             }
             
-            Section(header: Text("Storage").font(.headline)) {
-                Text("Files are referenced, not copied")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+            Section {
+                Label("Files are referenced, not copied", systemImage: "link")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
                 
-                Text("Moving or deleting the original file will break the reference")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                Label("Moving or deleting the original file will break the reference", systemImage: "exclamationmark.triangle")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            } header: {
+                Label("Storage", systemImage: "internaldrive.fill")
+                    .font(.headline)
             }
         }
+        .formStyle(.grouped)
         .padding(20)
     }
 }
@@ -168,20 +200,27 @@ struct NotesSettingsView: View {
     
     var body: some View {
         Form {
-            Section(header: Text("Quick Notes").font(.headline)) {
+            Section {
                 Toggle("Enable quick notes", isOn: $settings.notesEnabled)
                 
                 Toggle("Sync with iCloud", isOn: $settings.notesSyncWithiCloud)
                     .help("Sync notes across your Apple devices")
-                    .disabled(!settings.notesEnabled || true) // iCloud sync not yet implemented
+                    .disabled(!settings.notesEnabled || true)
+            } header: {
+                Label("Quick Notes", systemImage: "note.text")
+                    .font(.headline)
             }
             
-            Section(header: Text("Storage").font(.headline)) {
-                Text("Notes are stored locally in Application Support")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+            Section {
+                Label("Notes are stored locally in Application Support", systemImage: "folder.badge.gearshape")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            } header: {
+                Label("Storage", systemImage: "internaldrive.fill")
+                    .font(.headline)
             }
         }
+        .formStyle(.grouped)
         .padding(20)
     }
 }

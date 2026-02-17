@@ -25,7 +25,7 @@ struct FilesView: View {
     @State private var dropLimitMessage = ""
     @State private var showLimitReductionAlert = false
     @State private var attemptedLimit = 25
-    @State private var fileStatusRefreshTrigger = UUID() // Trigger to force FileCard re-render
+    @State private var fileStatusRefreshTrigger = UUID()
     
     // Keyboard key codes for better readability
     private enum KeyCode {
@@ -36,7 +36,7 @@ struct FilesView: View {
         static let upArrow: UInt16 = 126
     }
     
-    // Supported image file extensions (fileprivate to allow access from FileCard)
+    // Supported image file extensions
     fileprivate static let imageExtensions = ["jpg", "jpeg", "png", "gif", "bmp", "tiff", "heic", "webp"]
     
     enum ClearAction {
@@ -48,67 +48,45 @@ struct FilesView: View {
     var body: some View {
         VStack(spacing: 0) {
             // Search bar
-            HStack {
-                Image(systemName: "magnifyingglass")
-                    .foregroundColor(.secondary)
-                TextField("Search files...", text: $manager.searchText)
-                    .textFieldStyle(.plain)
-                    .focused($isSearchFocused)
-                    .onKeyPress(.space) {
-                        // Let space through only when search field is focused
-                        return isSearchFocused ? .ignored : .handled
-                    }
-                
-                if !manager.searchText.isEmpty {
-                    Button(action: { manager.searchText = "" }) {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundColor(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(10)
-            .background(Color(NSColor.controlBackgroundColor))
-            .cornerRadius(8)
-            .padding()
+            SearchBarView(text: $manager.searchText, placeholder: "Search files…")
+                .padding(.horizontal, 12)
+                .padding(.top, 12)
+                .padding(.bottom, 8)
             
             // Drop zone or file list
             if manager.isLoading {
-                // Loading state
-                VStack(spacing: 16) {
+                VStack(spacing: 14) {
                     ProgressView()
-                        .scaleEffect(1.2)
+                        .controlSize(.small)
                     
-                    Text("Loading files...")
-                        .font(.system(size: 14))
-                        .foregroundColor(.secondary)
+                    Text("Loading files…")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if manager.files.isEmpty {
-                // Empty state with drop zone
                 DropZoneView(isDragging: $isDragging)
             } else if manager.filteredFiles.isEmpty {
-                // Empty search results
                 VStack(spacing: 12) {
                     Image(systemName: "magnifyingglass")
-                        .font(.system(size: 48))
-                        .foregroundColor(.secondary)
+                        .font(.system(size: 36, weight: .light))
+                        .foregroundStyle(.quaternary)
                     
                     Text("No files found")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(.primary)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(.secondary)
                     
                     Text("Try a different search term")
                         .font(.system(size: 12))
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.tertiary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 // Files grid
                 ScrollView {
                     LazyVGrid(columns: [
-                        GridItem(.adaptive(minimum: 100, maximum: 120), spacing: 12)
-                    ], spacing: 12) {
+                        GridItem(.adaptive(minimum: 100, maximum: 120), spacing: 10)
+                    ], spacing: 10) {
                         ForEach(manager.filteredFiles) { file in
                             FileCard(
                                 file: file,
@@ -119,27 +97,27 @@ struct FilesView: View {
                                 refreshTrigger: fileStatusRefreshTrigger
                             )
                             .onHover { hovering in
-                                hoveredFile = hovering ? file.id : nil
+                                withAnimation(.easeInOut(duration: 0.1)) {
+                                    hoveredFile = hovering ? file.id : nil
+                                }
                             }
                             .onTapGesture {
                                 selectedFile = file
                                 isSearchFocused = false
                                 isFileAreaFocused = true
                                 
-                                // If Quick Look is already open, update preview to this file
                                 if let panel = QLPreviewPanel.shared(), panel.isVisible {
                                     quickLookTrigger = true
                                 }
                             }
                         }
                     }
-                    .padding()
+                    .padding(12)
                 }
                 .focusable()
                 .focused($isFileAreaFocused)
                 .focusEffectDisabled()
                 .onTapGesture {
-                    // Clicking empty area clears selection and removes search focus
                     selectedFile = nil
                     isSearchFocused = false
                     isFileAreaFocused = true
@@ -152,58 +130,42 @@ struct FilesView: View {
             }
             
             // Footer
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 4) {
-                        Text("\(manager.files.count)/\(manager.maxFiles) files")
-                            .font(.system(size: 11))
-                            .foregroundColor(manager.files.count >= manager.maxFiles ? .orange : .secondary)
-                        
-                        if manager.files.count >= manager.maxFiles {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                                .font(.system(size: 9))
-                                .foregroundColor(.orange)
-                                .help("File limit reached - oldest files will be removed")
-                        }
-                    }
-                    
-                    HStack(spacing: 8) {
-                        HStack(spacing: 2) {
-                            Image(systemName: "doc.badge.plus")
-                                .font(.system(size: 8))
-                            Text("Stored")
-                                .font(.system(size: 7))
-                        }
-                        .foregroundColor(.green)
-                        
-                        HStack(spacing: 2) {
-                            Image(systemName: "link")
-                                .font(.system(size: 8))
-                            Text("Ref")
-                                .font(.system(size: 7))
-                        }
-                        .foregroundColor(.orange)
-                    }
-                    .font(.system(size: 8))
-                }
+            HStack(spacing: 8) {
+                // File count with progress ring
+                FilesCountBadge(current: manager.files.count, max: manager.maxFiles)
                 
                 Spacer()
                 
                 if selectedFile != nil {
-                    Text("Press Space for Quick Look")
-                        .font(.system(size: 9))
-                        .foregroundColor(.secondary.opacity(0.8))
-                        .padding(.trailing, 8)
+                    HStack(spacing: 4) {
+                        Image(systemName: "space")
+                            .font(.system(size: 8, weight: .bold))
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 2)
+                            .background(
+                                RoundedRectangle(cornerRadius: 3, style: .continuous)
+                                    .fill(Color.primary.opacity(0.08))
+                            )
+                        Text("Quick Look")
+                            .font(.system(size: 9, weight: .medium))
+                    }
+                    .foregroundStyle(.tertiary)
                 }
                 
-                Toggle("Copy files", isOn: $manager.shouldCopyFiles)
-                    .toggleStyle(.checkbox)
-                    .font(.system(size: 11))
-                    .help("Copy files to app storage instead of just referencing them")
+                Toggle(isOn: $manager.shouldCopyFiles) {
+                    HStack(spacing: 4) {
+                        Image(systemName: manager.shouldCopyFiles ? "doc.badge.plus" : "link")
+                            .font(.system(size: 10))
+                        Text(manager.shouldCopyFiles ? "Copy" : "Reference")
+                            .font(.system(size: 10, weight: .medium))
+                    }
+                }
+                .toggleStyle(.checkbox)
+                .font(.system(size: 11))
+                .help("Copy files to app storage instead of just referencing them")
                 
                 if !manager.files.isEmpty {
                     Menu {
-                        // Open storage folder
                         Button(action: {
                             manager.openStorageFolder()
                         }) {
@@ -211,11 +173,9 @@ struct FilesView: View {
                         }
                         .keyboardShortcut(.init("o"), modifiers: [.command, .shift])
                         
-                        // File limit selector
                         Menu {
                             ForEach([25, 50, 75, 100], id: \.self) { limit in
                                 Button(action: {
-                                    // Check if reducing limit would exceed current file count
                                     if limit < manager.files.count {
                                         attemptedLimit = limit
                                         showLimitReductionAlert = true
@@ -237,7 +197,6 @@ struct FilesView: View {
                         
                         Divider()
                         
-                        // Refresh references
                         Button(action: {
                             refreshMissingFileStates()
                         }) {
@@ -248,7 +207,6 @@ struct FilesView: View {
                         
                         Divider()
                         
-                        // Delete submenu
                         Menu {
                             Button(action: {
                                 clearAction = .allReferences
@@ -294,55 +252,47 @@ struct FilesView: View {
                             }
                             .keyboardShortcut(.delete, modifiers: [.command, .shift])
                         } label: {
-                            Label("Delete...", systemImage: "trash")
+                            Label("Delete…", systemImage: "trash")
                                 .foregroundColor(.red)
                         }
                     } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "ellipsis.circle")
-                                .font(.system(size: 11))
-                            Text("Manage")
-                                .font(.system(size: 11))
-                        }
-                        .foregroundColor(.secondary)
+                        Image(systemName: "ellipsis.circle")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(.secondary)
                     }
                     .menuStyle(.borderlessButton)
                     .menuIndicator(.hidden)
                     .fixedSize()
-                    .help("File management options")
                 }
             }
-            .padding(.horizontal)
+            .padding(.horizontal, 14)
             .padding(.vertical, 8)
-            .background(Color(NSColor.windowBackgroundColor).opacity(0.5))
             
             // Copy feedback overlay
             if showCopiedFeedback {
                 VStack {
                     Spacer()
-                    HStack {
-                        Spacer()
-                        HStack(spacing: 6) {
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundColor(.green)
-                            Text("Image copied to clipboard")
-                                .font(.system(size: 11))
-                        }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(Color(NSColor.controlBackgroundColor))
-                        .cornerRadius(6)
-                        .shadow(radius: 4)
-                        .padding()
-                        Spacer()
+                    HStack(spacing: 6) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                        Text("Image copied")
+                            .font(.system(size: 11, weight: .medium))
                     }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(
+                        Capsule()
+                            .fill(.ultraThinMaterial)
+                    )
+                    .shadow(color: .black.opacity(0.1), radius: 8, y: 4)
+                    .padding(.bottom, 50)
                 }
                 .transition(.move(edge: .bottom).combined(with: .opacity))
                 .zIndex(100)
             }
         }
         .alert(alertTitle, isPresented: $showClearAllConfirmation) {
-            Button("Cancel", role: .cancel) { 
+            Button("Cancel", role: .cancel) {
                 clearAction = nil
             }
             Button(alertButtonText, role: .destructive) {
@@ -358,9 +308,7 @@ struct FilesView: View {
         }
         .alert("Cannot Reduce Limit", isPresented: $showLimitReductionAlert) {
             Button("Cancel", role: .cancel) { }
-            Button("Open Manage Menu") {
-                // User can manually delete files from the manage menu
-            }
+            Button("Open Manage Menu") { }
         } message: {
             Text("You have \(manager.files.count) files but want to set limit to \(attemptedLimit).\n\nPlease remove \(manager.files.count - attemptedLimit) file\(manager.files.count - attemptedLimit == 1 ? "" : "s") first using the Manage menu delete options.")
         }
@@ -371,7 +319,6 @@ struct FilesView: View {
             removeEventMonitor()
         }
         .onChange(of: controlActiveState) { oldValue, newValue in
-            // Clear selection when window loses focus
             if newValue != .key {
                 selectedFile = nil
             }
@@ -442,28 +389,26 @@ struct FilesView: View {
     
     func setupEventMonitor() {
         eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            // Handle space bar - toggle Quick Look
             if event.keyCode == KeyCode.space && selectedFile != nil && !isSearchFocused {
                 if let panel = QLPreviewPanel.shared(), panel.isVisible {
                     panel.orderOut(nil)
                 } else {
                     quickLookTrigger = true
                 }
-                return nil // Event handled, don't pass it on
+                return nil
             }
             
-            // Handle arrow keys for navigation when Quick Look is shown
             if let panel = QLPreviewPanel.shared(), panel.isVisible {
                 let currentIndex = manager.filteredFiles.firstIndex { $0.id == selectedFile?.id } ?? 0
                 
                 switch event.keyCode {
-                case KeyCode.leftArrow, KeyCode.upArrow: // Left arrow or Up arrow - previous file
+                case KeyCode.leftArrow, KeyCode.upArrow:
                     if currentIndex > 0 {
                         selectedFile = manager.filteredFiles[currentIndex - 1]
                         quickLookTrigger = true
                         return nil
                     }
-                case KeyCode.rightArrow, KeyCode.downArrow: // Right arrow or Down arrow - next file
+                case KeyCode.rightArrow, KeyCode.downArrow:
                     if currentIndex < manager.filteredFiles.count - 1 {
                         selectedFile = manager.filteredFiles[currentIndex + 1]
                         quickLookTrigger = true
@@ -474,10 +419,9 @@ struct FilesView: View {
                 }
             }
             
-            return event // Pass other events through
+            return event
         }
         
-        // Listen for panel hide notification to close Quick Look
         panelHideObserver = NotificationCenter.default.addObserver(
             forName: .mainPanelWillHide,
             object: nil,
@@ -502,8 +446,6 @@ struct FilesView: View {
     }
     
     func refreshMissingFileStates() {
-        print("🔄 Refreshing file status for all reference files...")
-        // Trigger re-check by changing the UUID (forces FileCard to re-run onAppear)
         fileStatusRefreshTrigger = UUID()
     }
     
@@ -512,14 +454,12 @@ struct FilesView: View {
         let currentCount = manager.files.count
         let availableSlots = manager.maxFiles - currentCount
         
-        // Check if drop would exceed limit
         if dropCount > availableSlots {
             dropLimitMessage = "You're trying to add \(dropCount) file\(dropCount == 1 ? "" : "s"), but only \(availableSlots) slot\(availableSlots == 1 ? "" : "s") available (limit: \(manager.maxFiles)).\n\nPlease remove some files first or increase the limit in the Manage menu."
             showDropLimitAlert = true
             return
         }
         
-        // Collect all URLs first, then batch add
         var urlsToAdd: [URL] = []
         let group = DispatchGroup()
         
@@ -542,34 +482,80 @@ struct FilesView: View {
     }
 }
 
+// MARK: - Files Count Badge
+
+struct FilesCountBadge: View {
+    let current: Int
+    let max: Int
+    
+    private var progress: Double {
+        guard max > 0 else { return 0 }
+        return Double(current) / Double(max)
+    }
+    
+    private var color: Color {
+        if progress >= 1.0 { return .orange }
+        if progress >= 0.8 { return .yellow }
+        return .accentColor
+    }
+    
+    var body: some View {
+        HStack(spacing: 6) {
+            ZStack {
+                Circle()
+                    .stroke(color.opacity(0.15), lineWidth: 2)
+                    .frame(width: 14, height: 14)
+                
+                Circle()
+                    .trim(from: 0, to: progress)
+                    .stroke(color, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                    .frame(width: 14, height: 14)
+                    .rotationEffect(.degrees(-90))
+            }
+            
+            Text("\(current)/\(max)")
+                .font(.system(size: 10, weight: .medium, design: .rounded))
+                .foregroundStyle(.secondary)
+        }
+    }
+}
+
 struct DropZoneView: View {
     @Binding var isDragging: Bool
     
     var body: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "arrow.down.doc")
-                .font(.system(size: 48))
-                .foregroundColor(isDragging ? .accentColor : .secondary)
+        VStack(spacing: 14) {
+            ZStack {
+                Circle()
+                    .fill(isDragging ? Color.accentColor.opacity(0.1) : Color.primary.opacity(0.03))
+                    .frame(width: 72, height: 72)
+                
+                Image(systemName: "arrow.down.doc.fill")
+                    .font(.system(size: 28, weight: .medium))
+                    .foregroundStyle(isDragging ? Color.accentColor : .secondary)
+                    .symbolEffect(.bounce, value: isDragging)
+            }
             
             Text("Drop files here")
-                .font(.system(size: 16, weight: .medium))
-                .foregroundColor(isDragging ? .accentColor : .primary)
+                .font(.system(size: 15, weight: .semibold, design: .rounded))
+                .foregroundStyle(isDragging ? Color.accentColor : .primary)
             
             Text("Files will be temporarily stored for easy access")
                 .font(.system(size: 12))
-                .foregroundColor(.secondary)
+                .foregroundStyle(.tertiary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 40)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(
-            RoundedRectangle(cornerRadius: 12)
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .strokeBorder(
-                    isDragging ? Color.accentColor : Color.secondary.opacity(0.3),
-                    style: StrokeStyle(lineWidth: 2, dash: [8])
+                    isDragging ? Color.accentColor : Color.primary.opacity(0.08),
+                    style: StrokeStyle(lineWidth: isDragging ? 2 : 1.5, dash: [8, 4])
                 )
-                .padding(20)
+                .padding(16)
         )
+        .animation(.easeInOut(duration: 0.2), value: isDragging)
     }
 }
 
@@ -583,161 +569,114 @@ struct FileCard: View {
     @State private var imageThumbnail: NSImage? = nil
     @State private var isFileMissing: Bool = false
     @Binding var showCopiedFeedback: Bool
-    let refreshTrigger: UUID // When this changes, re-check file status
+    let refreshTrigger: UUID
     
-    // Computed property for instant icon - no async needed!
     private var displayIcon: NSImage {
-        // For images, show actual thumbnail if loaded
         if let thumb = imageThumbnail {
             return thumb
         }
         
         if let resolvedURL = file.resolvedURL() {
-            // Native workspace icon - instant and perfect
             return NSWorkspace.shared.icon(forFile: resolvedURL.path)
         }
-        // Fallback to file type icon
         if let icon = file.icon {
             return icon
         }
-        // Ultimate fallback - use modern API
         if let contentType = UTType(filenameExtension: file.fileType) {
             return NSWorkspace.shared.icon(for: contentType)
         }
-        // Generic document icon if all else fails
         return NSWorkspace.shared.icon(for: .data)
     }
     
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 6) {
             // File thumbnail/icon with badge
             ZStack(alignment: .topTrailing) {
                 ZStack {
                     Image(nsImage: displayIcon)
                         .resizable()
                         .aspectRatio(contentMode: .fill)
-                        .frame(width: 80, height: 60)
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                        .frame(width: 76, height: 56)
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .strokeBorder(Color.primary.opacity(0.06), lineWidth: 0.5)
+                        )
                         .opacity(isFileMissing ? 0.3 : 1.0)
                     
-                    // Missing file indicator
                     if isFileMissing {
                         VStack(spacing: 2) {
                             Image(systemName: "exclamationmark.triangle.fill")
-                                .font(.system(size: 20))
-                                .foregroundColor(.orange)
+                                .font(.system(size: 16))
+                                .foregroundStyle(.orange)
                             Text("Missing")
-                                .font(.system(size: 8, weight: .semibold))
-                                .foregroundColor(.orange)
+                                .font(.system(size: 7, weight: .bold, design: .rounded))
+                                .foregroundStyle(.orange)
                         }
                     }
                 }
                 
                 // Storage type badge
-                if isCopiedFile {
-                    HStack(spacing: 2) {
-                        Image(systemName: "doc.badge.plus")
-                            .font(.system(size: 8))
-                        Text("Stored")
-                            .font(.system(size: 7, weight: .semibold))
-                    }
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 4)
-                    .padding(.vertical, 2)
-                    .background(Color.green)
-                    .clipShape(RoundedRectangle(cornerRadius: 3))
-                    .offset(x: -2, y: 2)
-                    .help("File stored in app - will be deleted if you clear storage")
-                } else {
-                    HStack(spacing: 2) {
-                        Image(systemName: "link")
-                            .font(.system(size: 8))
-                        Text("Ref")
-                            .font(.system(size: 7, weight: .semibold))
-                    }
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 4)
-                    .padding(.vertical, 2)
-                    .background(isFileMissing ? Color.red : Color.orange)
-                    .clipShape(RoundedRectangle(cornerRadius: 3))
-                    .offset(x: -2, y: 2)
-                    .help(isFileMissing ? "Original file not found - may have been moved or deleted" : "Reference only - original file remains in its location")
-                }
+                StorageTypeBadge(isCopied: isCopiedFile, isMissing: isFileMissing)
+                    .offset(x: 2, y: -2)
             }
-            .frame(width: 80, height: 60)
+            .frame(width: 76, height: 56)
             
-            // File name with tooltip showing full name
+            // File name
             Text(file.name)
-                .font(.system(size: 11))
+                .font(.system(size: 10.5, weight: .medium))
                 .lineLimit(2)
                 .multilineTextAlignment(.center)
+                .foregroundStyle(.primary)
                 .help(file.name)
             
             // File size
             Text(file.formattedSize)
-                .font(.system(size: 9))
-                .foregroundColor(.secondary)
-                .help("File size: \(file.formattedSize)")
+                .font(.system(size: 9, weight: .medium, design: .rounded))
+                .foregroundStyle(.tertiary)
             
             // Actions (visible on hover)
             if isHovered {
                 HStack(spacing: 4) {
-                    Button(action: {
+                    CircleActionButton(systemName: "arrow.up.forward.square", tint: .accentColor) {
                         manager.openFile(file)
-                    }) {
-                        Image(systemName: "arrow.up.forward.square")
-                            .font(.system(size: 12))
                     }
-                    .buttonStyle(.plain)
-                    .help("Open")
                     
-                    Button(action: {
+                    CircleActionButton(systemName: "photo.on.rectangle", tint: .blue) {
                         copyFullImageToClipboard()
-                    }) {
-                        Image(systemName: "photo.on.rectangle")
-                            .font(.system(size: 12))
                     }
-                    .buttonStyle(.plain)
-                    .help("Copy Image")
                     
-                    Button(action: {
+                    CircleActionButton(systemName: "folder", tint: .secondary) {
                         manager.revealInFinder(file)
-                         }) {
-                        Image(systemName: "folder")
-                            .font(.system(size: 12))
                     }
-                    .buttonStyle(.plain)
-                    .help("Show in Finder")
                     
-                    Button(action: {
+                    CircleActionButton(systemName: "trash", tint: isCopiedFile ? .red : .orange) {
                         manager.removeFile(file)
-                    }) {
-                        Image(systemName: "trash")
-                            .font(.system(size: 12))
-                            .foregroundColor(isCopiedFile ? .red : .orange)
                     }
-                    .buttonStyle(.plain)
-                    .help(isCopiedFile ? "Delete file" : "Delete reference")
                 }
-                .padding(.top, 4)
+                .transition(.opacity.combined(with: .scale(scale: 0.85)))
             }
         }
-        .frame(width: 100, height: 140)
-        .padding(8)
+        .frame(width: 100, height: isHovered ? 145 : 115)
+        .padding(6)
         .background(
-            RoundedRectangle(cornerRadius: 8)
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .fill(
-                    isSelected && isWindowFocused 
-                        ? Color.accentColor.opacity(0.2) 
-                        : isHovered 
-                            ? Color.accentColor.opacity(0.1) 
-                            : Color(NSColor.controlBackgroundColor)
+                    isSelected && isWindowFocused
+                        ? Color.accentColor.opacity(0.12)
+                        : isHovered
+                            ? Color.primary.opacity(0.04)
+                            : Color.clear
                 )
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .strokeBorder(isSelected ? Color.accentColor : Color.clear, lineWidth: 2)
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(
+                    isSelected ? Color.accentColor.opacity(0.35) : Color.clear,
+                    lineWidth: 1.5
+                )
         )
+        .animation(.easeInOut(duration: 0.15), value: isHovered)
         .onDrag {
             NSItemProvider(object: file.url as NSURL)
         }
@@ -746,7 +685,6 @@ struct FileCard: View {
             loadImageThumbnail()
         }
         .onChange(of: refreshTrigger) {
-            // Re-check file status when refresh is triggered
             checkFileStatus()
         }
         .contextMenu {
@@ -763,7 +701,6 @@ struct FileCard: View {
                 manager.revealInFinder(file)
             }
             
-            // Only show "Copy Image" for image files
             if FilesView.imageExtensions.contains(file.fileType.lowercased()) {
                 Button("Copy Image") {
                     copyFullImageToClipboard()
@@ -779,7 +716,6 @@ struct FileCard: View {
     }
     
     func checkFileStatus() {
-        // Compute isCopiedFile once on appear
         if let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
             let storageFolder = appSupport.appendingPathComponent("TrayMe/StoredFiles")
             let fileStandardized = file.url.standardizedFileURL.path
@@ -787,37 +723,29 @@ struct FileCard: View {
             isCopiedFile = fileStandardized.hasPrefix(storageStandardized)
         }
         
-        // Check if reference file still exists (only for reference files)
         if !isCopiedFile {
-            print("🔍 Checking if reference file exists: \(file.name)")
             Task(priority: .utility) {
                 let exists = file.fileExists()
-                print("🔍 File existence result for \(file.name): \(exists)")
                 await MainActor.run {
                     isFileMissing = !exists
-                    print("🔍 Set isFileMissing = \(isFileMissing) for \(file.name)")
                 }
             }
         }
     }
     
     func loadImageThumbnail() {
-        // Only generate thumbnails for images - everything else uses workspace icons
         guard FilesView.imageExtensions.contains(file.fileType.lowercased()) else {
-            return // Non-images get workspace icons (instant)
+            return
         }
         
         guard let resolvedURL = file.resolvedURL() else { return }
         
-        // Check cache FIRST (super fast - just file read, no JSON parsing!)
         if let cached = FilesManager.getCachedThumbnail(for: resolvedURL) {
             self.imageThumbnail = cached
             return
         }
         
-        // Generate thumbnail in background if not cached
         Task(priority: .utility) {
-            // Start security-scoped access
             let isAccessing = resolvedURL.startAccessingSecurityScopedResource()
             defer {
                 if isAccessing {
@@ -825,13 +753,11 @@ struct FileCard: View {
                 }
             }
             
-            // Load and resize image using modern NSGraphicsContext API
             guard let image = NSImage(contentsOf: resolvedURL) else { return }
             
             let targetSize = CGSize(width: 160, height: 120)
             let thumbnail = NSImage(size: targetSize)
             
-            // Use modern NSGraphicsContext API instead of deprecated lockFocus
             if let bitmapRep = NSBitmapImageRep(
                 bitmapDataPlanes: nil,
                 pixelsWide: Int(targetSize.width),
@@ -855,7 +781,6 @@ struct FileCard: View {
                 thumbnail.addRepresentation(bitmapRep)
             }
             
-            // Cache to disk for next time (PNG is small and fast)
             FilesManager.cacheThumbnail(thumbnail, for: resolvedURL)
             
             await MainActor.run {
@@ -865,19 +790,14 @@ struct FileCard: View {
     }
     
     func copyFullImageToClipboard() {
-        // Only copy if the file is an image
         guard FilesView.imageExtensions.contains(file.url.pathExtension.lowercased()) else {
-            print("⚠️ Cannot copy non-image file to clipboard")
             return
         }
         
-        // Use resolvedURL() to handle security-scoped bookmarks for referenced files
         guard let resolvedURL = file.resolvedURL() else {
-            print("❌ Cannot resolve file URL for: \(file.name)")
             return
         }
         
-        // Start accessing security-scoped resource for referenced files
         let isAccessing = resolvedURL.startAccessingSecurityScopedResource()
         defer {
             if isAccessing {
@@ -885,21 +805,48 @@ struct FileCard: View {
             }
         }
         
-        // Load the full-resolution image
         if let fullImage = NSImage(contentsOf: resolvedURL) {
             let pasteboard = NSPasteboard.general
             pasteboard.clearContents()
             pasteboard.writeObjects([fullImage])
             
-            // Show success feedback
-            showCopiedFeedback = true
-            Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds
-                showCopiedFeedback = false
+            withAnimation(.easeInOut(duration: 0.3)) {
+                showCopiedFeedback = true
             }
-        } else {
-            print("⚠️ Failed to load image from file")
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                withAnimation(.easeInOut(duration: 0.3)) {
+                    showCopiedFeedback = false
+                }
+            }
         }
+    }
+}
+
+// MARK: - Storage Type Badge
+
+struct StorageTypeBadge: View {
+    let isCopied: Bool
+    let isMissing: Bool
+    
+    var body: some View {
+        HStack(spacing: 2) {
+            Image(systemName: isCopied ? "doc.badge.plus" : "link")
+                .font(.system(size: 7, weight: .bold))
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 4)
+        .padding(.vertical, 2.5)
+        .background(
+            Capsule()
+                .fill(badgeColor)
+        )
+        .shadow(color: badgeColor.opacity(0.3), radius: 2, y: 1)
+    }
+    
+    private var badgeColor: Color {
+        if isMissing { return .red }
+        return isCopied ? .green : .orange
     }
 }
 
@@ -916,11 +863,8 @@ struct QuickLookPreview: NSViewRepresentable {
     
     func updateNSView(_ nsView: NSView, context: Context) {
         if isPresented, let file = file {
-            print("🔍 QuickLook triggered for: \(file.name)")
-            
             DispatchQueue.main.async {
                 context.coordinator.showPreview(for: file, in: nsView.window)
-                // Reset trigger
                 isPresented = false
             }
         }
@@ -936,60 +880,36 @@ struct QuickLookPreview: NSViewRepresentable {
         var isAccessingSecurityScope = false
         
         func showPreview(for file: FileItem, in window: NSWindow?) {
-            print("🔍 Coordinator.showPreview called for: \(file.name)")
-            
-            // Clean up previous file's security scope
             if isAccessingSecurityScope, let url = resolvedURL {
                 url.stopAccessingSecurityScopedResource()
                 isAccessingSecurityScope = false
             }
             
-            // Update to new file
             self.previewFile = file
             
-            // Resolve URL from bookmark if available
             guard let url = resolveURLForQuickLook(file: file) else {
-                print("❌ Failed to resolve URL for file")
                 return
             }
             
             self.resolvedURL = url
-            print("🔍 Resolved URL: \(url.path)")
-            print("🔍 File exists: \(FileManager.default.fileExists(atPath: url.path))")
             
-            // Start accessing security-scoped resource
             isAccessingSecurityScope = url.startAccessingSecurityScopedResource()
-            print("🔍 Security scope access: \(isAccessingSecurityScope)")
             
             guard let panel = QLPreviewPanel.shared() else {
-                print("❌ QLPreviewPanel.shared() returned nil")
                 return
             }
             
-            print("🔍 Setting up panel")
             panel.dataSource = self
             panel.delegate = self
             
             if panel.isVisible {
-                print("🔍 Panel already visible, reloading")
                 panel.reloadData()
             } else {
-                print("🔍 Showing panel")
                 panel.makeKeyAndOrderFront(nil)
             }
-            
-            print("🔍 Panel isVisible: \(panel.isVisible)")
         }
         
-        // Resolve URL with proper security scope for QuickLook
         private func resolveURLForQuickLook(file: FileItem) -> URL? {
-            print("🔍 resolveURLForQuickLook for: \(file.name)")
-            print("🔍 Has bookmark data: \(file.bookmarkData != nil)")
-            if let bookmarkData = file.bookmarkData {
-                print("🔍 Bookmark data size: \(bookmarkData.count) bytes")
-            }
-            
-            // If we have bookmark data, resolve it
             if let bookmarkData = file.bookmarkData {
                 do {
                     var isStale = false
@@ -999,24 +919,16 @@ struct QuickLookPreview: NSViewRepresentable {
                         relativeTo: nil,
                         bookmarkDataIsStale: &isStale
                     )
-                    print("🔍 Resolved from bookmark: \(url.path)")
-                    print("🔍 Bookmark is stale: \(isStale)")
                     return url
                 } catch {
-                    print("⚠️ Bookmark resolution failed: \(error.localizedDescription)")
-                    // Fall through to try original URL
+                    // Fall through
                 }
-            } else {
-                print("⚠️ No bookmark data available")
             }
             
-            // For stored files or if bookmark fails, use original URL
-            print("🔍 Using original URL: \(file.url.path)")
             return file.url
         }
         
         deinit {
-            // Clean up security-scoped access
             if isAccessingSecurityScope, let url = resolvedURL {
                 url.stopAccessingSecurityScopedResource()
             }

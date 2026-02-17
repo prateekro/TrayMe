@@ -211,15 +211,10 @@ struct NotesView: View {
     }
     
     func selectNote(_ note: Note) {
-        print("📝 Selecting note: \(note.displayTitle)")
-        
-        // Execute any pending save immediately
         saveWorkItem?.cancel()
         
-        // Save current note before switching
         if let currentNote = manager.selectedNote,
            currentNote.id != note.id {
-            print("📝 Saving previous note before switching")
             manager.updateNote(currentNote, title: noteTitle, content: noteContent)
         }
         
